@@ -1,0 +1,103 @@
+#!/bin/sh
+
+if [[ "${ROTATE_AWS_BACKUPS_DEBUG:-false}" = "true" ]]; then
+    set -x -v
+fi
+set -e -u -o pipefail
+source /usr/local/include/1121citrus/common-functions
+
+function rotate-aws-backups() {
+    if [[ -z "${AWS_ACCESS_KEY_ID}" ]]; then
+        error "Missing AWS_ACCESS_KEY_ID" > /dev/stderr && exit 1
+    fi
+    if [[ -z "${AWS_SECRET_ACCESS_KEY}" ]]; then
+        error "Missing AWS_SECRET_ACCESS_KEY" > /dev/stderr && exit 1
+    fi
+    if [[ -z "${AWS_S3_BUCKET_NAME}" ]]; then
+        error "Missing AWS_S3_BUCKET_NAME" > /dev/stderr && exit 1
+    fi
+
+    BUCKET=${AWS_S3_BUCKET_NAME:?Need AWS_S3_BUCKET_NAME}
+    HOURLY=${ROTATE_AWS_BACKUPS_HOURLY:-24}
+    DAILY=${ROTATE_AWS_BACKUPS_DAILY:-7}
+    WEEKLY=${ROTATE_AWS_BACKUPS_WEEKLY:-4}
+    MONTHLY=${ROTATE_AWS_BACKUPS_MONTHLY:-6}
+    YEARLY=${ROTATE_AWS_BACKUPS_YEARLY:-always}
+    TIMESTAMP_PATTERN=${ROTATE_AWS_BACKUPS_TIMESTAMP_PATTERN='(?P<year>\d{4})(?P<month>\d{2})(?P<day>\d{2})[Tt](?P<hour>\d{2})(?P<minute>\d{2})(?P<second>\d{2})'}
+    if [[ "${ROTATE_AWS_BACKUPS_DRY_RUN:-false}" = 'true' ]]; then
+        DRYRUN=--dryrun
+        DRY_RUN=--dry-run
+        function dryrun() {
+            log [DRYRUN] "${@}"
+        }
+    else
+        DRYRUN=
+        DRY_RUN=
+        function dryrun() {
+            "${@}"
+        }
+    fi
+    DELETE_IGNORED=${ROTATE_AWS_BACKUPS_DELETE_IGNORED:-false}
+
+    # Get a listing of the backup bucket and recreate its filename structure
+    info scanning ${BUCKET}
+    aws s3 ls "s3://${BUCKET}" | awk '{print $4}' | while read f; do
+        touch "${WORKDIR}/${f}"
+    done
+    
+    # Run rotate-backups on the temp directory files (having the same
+    # names as the backups on S3. We examine the output and delete
+    # object on S3 as needed.
+    info bqegin rotate-backups
+    /usr/local/bin/rotate-backups \
+               --hourly="${HOURLY}" \
+               --daily="${DAILY}" \
+               --weekly="${WEEKLY}" \
+               --monthly="${MONTHLY}" \
+               --yearly="${YEARLY}" \
+               --timestamp-pattern="${TIMESTAMP_PATTERN}" \
+               "${DRY_RUN}" \
+               "${WORKDIR}" 2>&1 | \
+    egrep -i '(Deleting|Ignoring|Preserving)' | \
+    awk '{ $1=$2=$3=$4=$5=""; print $0 }' | \
+    sed "s|${WORKDIR}/||g" | \
+    sed 's/[Dd]eleting/delete/' | \
+    sed 's/[Ii]gnoring/ignore/' | \
+    sed 's/[Pp]reserving/preserve/' | \
+    while read message; do
+        action=$(echo ${message} | awk '{print $1}' | tr '[A-Z]' '[a-z]')
+        file=$(basename $(echo "${message}" | awk '{print $2}'))
+        OBJECT=s3://${BUCKET}/${file}
+        case "${action}" in
+            delete)   info ${message}
+                      dryrun aws s3 rm "${OBJECT}"
+                      ;;
+            preserve) info ${message}
+                      ;;
+            ignore)   if [[ "${DELETE_IGNORED}" = 'true' ]]; then \ 
+                          info $(echo "${message}" | sed -E 's/Ignore/Delete/' | sed -E 's/ignore/delete/')
+                          dryrun aws s3 rm "${OBJECT}"
+                      else
+                          ignore ${message}
+                      fi
+                      ;;
+            *)        ignore ${message}
+                      ;;
+        esac
+    done
+    
+}
+
+# Create a work directory
+WORKDIR=$(mktemp -d)
+function cleanup() {
+    rm -rf "${WORKDIR}" >/dev/null 2>&1
+}
+trap cleanup ERR EXIT SIGINT SIGKILL SIGQUIT SIGTERM
+
+date_fmt=${ROTATE_AWS_BACKUPS__DATE_FMT:-'%Y-%m-%dT%H:%M:%S %Z'}
+info started at $(date "+${date_fmt}")
+rotate-aws-backups "${@}"
+info completed $(date "+${date_fmt}")
+
+ 

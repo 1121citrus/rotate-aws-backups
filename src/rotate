@@ -1,0 +1,7 @@
+#!/bin/sh
+
+# Convenience script to make ... 'rotate' an easy
+# synonym for one-off rotations
+
+exec /usr/local/bin/rotate-aws-backups
+

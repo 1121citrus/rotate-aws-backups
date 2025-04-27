@@ -1,0 +1,20 @@
+function log() {
+    echo $(date '+%Y%m%dT%H%M%S') $(basename "${0}") "${@}"
+}
+
+function debug() {
+    log [DEBUG] "${@}"
+}
+
+function error() {
+    log [ERROR] "${@}"
+}
+
+function ignore() {
+    log [IGNORE] "${@}"
+}
+
+function info() {
+    log [INFO] "${@}"
+}
+

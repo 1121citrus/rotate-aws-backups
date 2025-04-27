@@ -1,0 +1,6 @@
+# Stash for maybe trash
+.attic
+
+# Environments
+.env
+
