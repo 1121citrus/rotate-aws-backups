@@ -4,7 +4,7 @@ Yet another version of[`rotate-backups`](https://pypi.org/project/rotate-backups
 
 ### Method
 
-1. Create a directory (`WORKDIR`) that will servce as as mirror of the bucket.
+1. Create a directory (`WORKDIR`) that will serve as as mirror of the bucket.
 
 2. For each object in the bucket, create an empty file in the `WORKDIR` with the same name.
 
@@ -66,5 +66,3 @@ services:
 ```sh
 docker run --rm -it -e AWS_S3_BUCKET_NAME=bucket -e AWS_ACCESS_KEY_ID=access_key -e AWS_SECRET_ACCESS_KEY=secret -e ROTATE_AWS_BACKUPS_DELETE_IGNORED=true -e ROTATE_AWS_BACKUPS_CRON_EXPRESSION='15 2 * * *' 1121citrus/rotate-aws-backups rotate
 ```
-
-
