@@ -66,5 +66,3 @@ services:
 ```sh
 docker run --rm -it -e AWS_S3_BUCKET_NAME=bucket -e AWS_ACCESS_KEY_ID=access_key -e AWS_SECRET_ACCESS_KEY=secret -e ROTATE_AWS_BACKUPS_DELETE_IGNORED=true -e ROTATE_AWS_BACKUPS_CRON_EXPRESSION='15 2 * * *' 1121citrus/rotate-aws-backups rotate
 ```
-
-
