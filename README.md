@@ -4,7 +4,7 @@ Yet another version of[`rotate-backups`](https://pypi.org/project/rotate-backups
 
 ### Method
 
-1. Create a directory (`WORKDIR`) that will servce as as mirror of the bucket.
+1. Create a directory (`WORKDIR`) that will serve as as mirror of the bucket.
 
 2. For each object in the bucket, create an empty file in the `WORKDIR` with the same name.
 
