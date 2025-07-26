@@ -1,0 +1,46 @@
+#!/usr/bin/env bash
+
+source /usr/local/include/bash/common-functions
+
+set -o errexit -o errtrace -o nounset -o pipefail
+set +o xtrace +o verbose
+if is_true "${DEBUG:-false}"; then
+    set -o xtrace -o verbose
+fi
+
+AWS_CONFIG_DIR=${HOME}/.aws
+ENV=${HOME}/.env
+
+# Write cronjob env to file, fill in sensible defaults, and read them back in
+cat <<EOF >"${ENV}"
+export AWS_CONFIG_FILE=/run/secrets/aws-config
+export AWS_EXTRA_ARGS=${AWS_EXTRA_ARGS:-}
+export AWS_S3_BUCKET_NAME=${AWS_S3_BUCKET_NAME:?Need bucket}
+export CRON_EXPRESSION='${CRON_EXPRESSION:-@daily}'
+export DAILY=${DAILY:-7}
+export DEBUG=${DEBUG:-false}
+export DELETE_IGNORED=${DELETE_IGNORED:-false}
+export DRYRUN=${DRYRUN:-true}
+export HOURLY=${HOURLY:-24}
+export WEEKLY=${WEEKLY:-4}
+export YEARLY=${YEARLY:-always}
+export TIMESTAMP_PATTERN=${TIMESTAMP_PATTERN:='(?P<year>\d{4})(?P<month>\d{2})(?P<day>\d{2})[Tt](?P<hour>\d{2})(?P<minute>\d{2})(?P<second>\d{2})'}
+EOF
+info "create env file ${ENV}"
+chmod -c 0600 "${ENV}" | info
+cat "${ENV}" | info
+source "${ENV}"
+
+# Make sure there is a place to store raw rotate-backups command output
+(mkdir -pv /var/log/rotate-aws-backups && chmod -c 0755 /var/log/rotate-aws-backups && touch /var/log/rotate-aws-backups/rotate-backups.log) | info
+
+# Add our cron entry, and direct stdout & stderr to Docker commands stdout
+COMMAND=/usr/local/bin/rotate-aws-backups
+info "installing cron.d entry: ${COMMAND}"
+(mkdir -pv /var/spool/cron/crontabs && chmod -c 0755 /var/spool/cron/crontabs) | info
+echo "${CRON_EXPRESSION} ${COMMAND} 2>&1" > /var/spool/cron/crontabs/root && chmod -c 0644 /var/spool/cron/crontabs/root | info
+info "crontab: $(cat /var/spool/cron/crontabs/root)"
+
+info "handing the reins over to cron daemon"
+crond -l 2 -f
+

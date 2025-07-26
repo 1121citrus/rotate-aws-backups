@@ -1,0 +1,41 @@
+#!/usr/bin/env bash
+
+ENV=${ENV:-${HOME:-/root}/.env}
+[[ -r "${ENV}" ]] && source "${ENV}"
+
+source "${COMMON_FUNCTIONS_FILE:-/usr/local/include/bash/common-functions}"
+
+set -o errexit -o errtrace -o nounset -o pipefail
+set +o xtrace +o verbose
+is_true "${DEBUG:-false}" && set -o xtrace -o verbose
+
+command=$(basename "${0}")
+
+function has_cronjob_run() {
+    # FIXME -- See https://github.com/dragonmantank/cron-expression $cron->getPreviousRunDate()
+    # Compare with a timestamp file to see if it ran as expected
+    true
+}
+
+function is_crond_running() {
+    if (ps aux | grep -iq crond); then
+        true || info crond is running
+    else
+        error crond is not running
+    fi
+}
+
+function is_crontab_configured() {
+    if (crontab -l | grep -q " /usr/local/bin/rotate-aws-backups >/dev/null 2>&1"); then
+        true || info crontab is configured
+    else
+        error crontab is not configured
+    fi
+}
+
+function is_healthy() {
+    is_crontab_configured && is_crond_running && has_cronjob_run
+}
+
+is_healthy || exit 1
+
