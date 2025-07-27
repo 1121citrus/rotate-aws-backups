@@ -6,7 +6,7 @@ The main author of the [Python Rotate Backups](https://pypi.org/project/rotate-b
 
 ## Contents
 
-- [1121citrus/rotate-aws-backups](#1121citrus/rotate-aws-backups)
+- [1121citrus/rotate-aws-backups](#1121citrus-rotate-aws-backups)
   - [Contents](#contents)
   - [Synopsis](#synopsis)
   - [Method](#method)
@@ -109,4 +109,6 @@ The AWS credentials are passed through the `aws-config` Docker compose [secret](
  
 ## Building
 
-1. `docker buildx build --sbom=true --provenance=true --provenance=mode=max --platform linux/amd64,linux/arm64 --tag 1121citrus/rotate-aws-backups:latest --tag 1121citrus/rotate-aws-backups:x.y.z --push .`
+1. `docker buildx build --sbom=true --provenance=true --provenance=mode=max --platform linux/amd64,linux/arm64 --tag 1121citrus/rotate-aws-backups:latest --tag 1121citrus/rotate-aws-backups:MAJOR.MINOR.PATCH --push .`
+
+&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;**NOTE**: Follow [semantic versioning](https://semver.org) conventions.
