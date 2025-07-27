@@ -2,9 +2,11 @@
 
 Yet another version of [`rotate-backups`](https://pypi.org/project/rotate-backups/) but this time applied to an AWS S3 backup archive bucket. The `rotate-aws-backups` service would likely be used in conjunction with some other backup service, such as [docker-volume-backup](https://github.com/jareware/docker-volume-backup).
 
+The main author of the [Python Rotate Backups](https://pypi.org/project/rotate-backups/) library is [Peter Odding](https://github.com/xolox). The original source code is at [cyberphone/json-canonicalization](https://github.com/xolox/python-rotate-backups).
+
 ## Contents
 
-- [1121citrus/rotate-aws-backups](#1121citrusrotate-aws-backups)
+- [1121citrus/rotate-aws-backups](#1121citrus/rotate-aws-backups)
   - [Contents](#contents)
   - [Synopsis](#synopsis)
   - [Method](#method)
