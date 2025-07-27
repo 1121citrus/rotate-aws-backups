@@ -2,7 +2,7 @@
 
 Yet another version of [`rotate-backups`](https://pypi.org/project/rotate-backups/) but this time applied to an AWS S3 backup archive bucket. The `rotate-aws-backups` service would likely be used in conjunction with some other backup service, such as [docker-volume-backup](https://github.com/jareware/docker-volume-backup).
 
-The main author of the [Python Rotate Backups](https://pypi.org/project/rotate-backups/) library is [Peter Odding](https://github.com/xolox). The original source code is at [cyberphone/json-canonicalization](https://github.com/xolox/python-rotate-backups).
+The main author of the [Python Rotate Backups](https://pypi.org/project/rotate-backups/) library is [Peter Odding](https://github.com/xolox). The original source code is at [xolox/python-rotate-backups](https://github.com/xolox/python-rotate-backups).
 
 ## Contents
 
@@ -26,9 +26,9 @@ The main author of the [Python Rotate Backups](https://pypi.org/project/rotate-b
 >It will scan the directory for entries (it doesn’t matter whether they are files or directories) with a recognizable timestamp in the name.
 >
 > **Note**
->All of the matched directory entries are considered to be backups of the same data source, i.e. there’s no filename similarity logic to distinguish unrelated backups that are located in the same directory. If this presents a problem consider using the --include and/or --exclude options.
+>All of the matched directory entries are considered to be backups of the same data source, i.e. there’s no filename similarity logic to distinguish unrelated backups that are located in the same directory. If this presents a problem consider using the `--include` and/or `--exclude` options.
 >
->The user defined rotation scheme is applied to the entries. If this doesn’t do what you’d expect it to you can try the --relaxed and/or --prefer-recent options.
+>The user defined rotation scheme is applied to the entries. If this doesn’t do what you’d expect it to you can try the `--relaxed` and/or `--prefer-recent` options.
 >
 >The entries to rotate are removed (or printed in dry run).
 
