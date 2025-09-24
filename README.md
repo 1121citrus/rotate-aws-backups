@@ -61,7 +61,7 @@ services:
     image: 1121citrus/rotate-aws-backups
     restart: unless-stopped
     environment:
-      - AWS_S3_BUCKET_NAME=${AWS_S3_BUCKET_NAME}
+      - BUCKET=${BUCKET}
       - CRON_EXPRESSION='0 4 * * *'
       - DRYRUN=false
       - HOURLY=24
@@ -83,7 +83,7 @@ secrets:
 ### One Shot Rotation
 
 ```sh
-docker run --rm -it -e AWS_S3_BUCKET_NAME=bucket -v ./aws-config:/run/secrets/aws-config 1121citrus/rotate-aws-backups rotate
+docker run --rm -it -e BUCKET=bucket -v ./aws-config:/run/secrets/aws-config 1121citrus/rotate-aws-backups rotate
 ```
 
 ## Configuration
@@ -92,7 +92,8 @@ Environment Variable | Default | Possible Values | Notes
 --- | --- | --- | ---
 `AWS_CONFIG_FILE` | `/run/secrets/aws-config` | path | AWS configuration file (via [secret](https://docs.docker.com/compose/how-tos/use-secrets/) or [bind](https://docs.docker.com/engine/storage/bind-mounts/))
 `AWS_EXTRA_ARGS` | none | any string | Additional arguments to pass to `aws` commands
-`AWS_S3_BUCKET_NAME` | none | any string | AWS bucket to rotate
+`BUCKET` | none | any string | AWS bucket to rotate
+`BUCKET_LIST` | none | any string | A space separated list of AWS buckets to rotate
 `CRON_EXPRESSION` | `@daily` | string | Standard debian-flavored cron expression for when the backup should run. Use e.g. `0 4 * * *` to back up at 4 AM every night. See the man page or crontab.guru for more.                                                                                                                                                                                                `DAILY` | `7` | any integer, `always` | Number of daily backups to preserve.
 `DEBUG` | `false` | `true`, `false` | Enable/Disable to set/clear the shall -x (display command) and -v (verbose) options
 `DELETE_IGNORED` | `false` | `true`, `false` | Enable/Disable deletion of files that are ignored by `rotate-backups`

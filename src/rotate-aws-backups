@@ -16,22 +16,23 @@
 # You should have received a copy of the GNU Affero General Public License
 # along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
-# set -xv
+bindir=$(readlink -f "$(dirname "${0}")")
+echo "${PATH}" | grep -q "${bindir}" || export PATH=${bindir}:${PATH}
+
+# shellcheck disable=SC1091
+source /usr/local/include/bash/common-functions
 
 ENV=${ENV:-${HOME:-/root}/.env}
+# shellcheck disable=SC1090
 [[ -r "${ENV}" ]] && source "${ENV}"
 
-source "${COMMON_FUNCTIONS_FILE:-/usr/local/include/bash/common-functions}"
-
 set -o errexit -o errtrace -o nounset -o pipefail
-set +o xtrace +o verbose
-is_true "${DEBUG:-false}" && set -o xtrace -o verbose
+is_true "${DEBUG:=false}" && set -o xtrace -o verbose
 
-command=$(basename "${0}")
-
+export BUCKET=${BUCKET:=}
+export BUCKET_LIST="${BUCKET_LIST:=${BUCKET}}"
 export AWS_CONFIG_FILE=${AWS_CONFIG_FILE:=/run/secrets/aws-config}
-export AWS_EXTRA_ARGS=${AWS_EXTRA_ARGS:=}
-export BUCKET=${AWS_S3_BUCKET_NAME:?Need AWS_S3_BUCKET_NAME}
+export AWS_EXTRA_ARGS="${AWS_EXTRA_ARGS:=}"
 export DELETE_IGNORED=${DELETE_IGNORED:=false}
 export DRYRUN=${DRYRUN:=true}
 export ROTATE_BACKUPS_EXTRA_ARGS=${ROTATE_BACKUPS_EXTRA_ARGS:=}
@@ -44,8 +45,11 @@ export MONTHLY=${MONTHLY:=6}
 export YEARLY=${YEARLY:=always}
 
 if is_true "${DRYRUN}"; then
-    AWS_EXTRA_ARG=--dryrun ${AWS_EXTRA_ARGS}
+    AWS_EXTRA_ARG="--dryrun ${AWS_EXTRA_ARGS}"
 fi
+
+[[ -n "${BUCKET_LIST}" ]] || \
+    error "need to specify either BUCKET or BUCKET_LIST to be rotated"
 
 # Plan of action:
 #   - collect arguments
@@ -54,16 +58,18 @@ fi
 #   - run rotate-backups on our working directory
 #   - remove the objects on S3 corresponding to the files deleted by rotate-backups
 function rotate-aws-backups() {
+    local bucket=${1:?Need bucket}
     # Get a listing of the backup bucket and recreate its filename structure
-    info scanning ${BUCKET}
-    aws s3 ls "s3://${BUCKET}" | awk '{print $4}' | while read f; do
+    info "scanning ${bucket}"
+    aws s3 ls "s3://${bucket}" | awk '{print $4}' | while read -r f; do
         touch "${WORKDIR}/${f}"
     done
     
     # Run rotate-backups on the temp directory files (having the same
     # names as the backups on S3. We examine the output and delete
     # object on S3 as needed.
-    info begin rotate-backups
+    info "begin rotate-backups"
+    # shellcheck disable=SC2086
     /usr/local/bin/rotate-backups \
                --hourly="${HOURLY}" \
                --daily="${DAILY}" \
@@ -74,38 +80,41 @@ function rotate-aws-backups() {
                ${ROTATE_BACKUPS_EXTRA_ARGS} \
                "${WORKDIR}" 2>&1 | \
     tee >(info >> /var/log/rotate-aws-backups/rotate-backups.log) | \
-    egrep -i '(Deleting|Ignoring|Preserving)' | \
+    grep -E -i '(Deleting|Ignoring|Preserving)' | \
     awk '{ $1=$2=$3=$4=$5=""; print $0 }' | \
     sed "s|${WORKDIR}/||g" | \
     sed 's/[Dd]eleting/delete/' | \
     sed 's/[Ii]gnoring/ignore/' | \
     sed 's/[Pp]reserving/preserve/' | \
-    while read message; do
-        action=$(echo ${message} | awk '{print $1}' | tr '[A-Z]' '[a-z]')
-        file=$(basename $(echo "${message}" | awk '{print $2}'))
-        OBJECT=s3://${BUCKET}/${file}
+    while read -r message; do
+        action=$(echo "${message}" | awk '{print $1}' | tr '[:upper:]' '[:lower:]')
+        file=$(echo "${message}" | awk '{print $2}')
+        file=$(basename "${file}")
+        OBJECT=s3://${bucket}/${file}
         case "${action}" in
-            delete)   info ${message}
+            delete)   info "${message}"
                       if is_false "${DRYRUN}"; then
+                          # shellcheck disable=SC2086
                           aws s3 rm ${AWS_EXTRA_ARGS} "${OBJECT}" | info
                       else
-                          info DRYRUN s3 rm ${AWS_EXTRA_ARGS} "${OBJECT}"
+                          info "DRYRUN s3 rm ${AWS_EXTRA_ARGS} ${OBJECT}"
                       fi
                       ;;
-            preserve) info ${message}
+            preserve) info "${message}"
                       ;;
-            ignore)   if [[ "${DELETE_IGNORED}" = 'true' ]]; then \ 
-                          info $(echo "${message}" | sed -E 's/Ignore/Delete/' | sed -E 's/ignore/delete/')
+            ignore)   if [[ "${DELETE_IGNORED}" = 'true' ]]; then \
+                          echo "${message}" | sed -E 's/Ignore/Delete/' | sed -E 's/ignore/delete/' | info
                           if is_false "${DRYRUN}"; then
+                              # shellcheck disable=SC2086
                               aws s3 rm ${AWS_EXTRA_ARGS} "${OBJECT}" | info
                           else
-                              info DRYRUN s3 rm ${AWS_EXTRA_ARGS} "${OBJECT}"
+                              info "DRYRUN s3 rm ${AWS_EXTRA_ARGS} ${OBJECT}"
                           fi
                       else
-                          ignore ${message}
+                          ignore "${message}"
                       fi
                       ;;
-            *)        ignore ${message}
+            *)        ignore "${message}"
                       ;;
         esac
     done
@@ -119,6 +128,12 @@ function cleanup() {
 }
 trap cleanup EXIT
 
-rotate-aws-backups "${@}"
+for bucket in ${BUCKET_LIST:?Need BUCKET_LIST}; do
+    info "begin '${bucket}' bucket rotation"
+    rotate-aws-backups "${bucket}" "${@}"
+    info "completed '${bucket}' bucket rotation"
+    cleanup
+    WORKDIR=$(mktemp -d)
+done
 
 
