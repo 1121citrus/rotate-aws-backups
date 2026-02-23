@@ -16,11 +16,16 @@
 # You should have received a copy of the GNU Affero General Public License
 # along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
-bindir=$(readlink -f "$(dirname "${0}")")
+if command -v readlink >/dev/null 2>&1 && readlink -f "$(dirname "${0}")" >/dev/null 2>&1; then
+    bindir=$(readlink -f "$(dirname "${0}")")
+else
+    bindir=$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")" >/dev/null 2>&1 && pwd -P)
+fi
 echo "${PATH}" | grep -q "${bindir}" || export PATH=${bindir}:${PATH}
 
 # shellcheck disable=SC1091
-source /usr/local/include/common-functions
+# Allow tests to override the include dir via INCLUDE_DIR env var
+source "${INCLUDE_DIR:-/usr/local/include}/common-functions"
 
 ENV=${ENV:-${HOME:-/root}/.env}
 # shellcheck disable=SC1090
@@ -44,6 +49,11 @@ export WEEKLY=${WEEKLY:=4}
 export MONTHLY=${MONTHLY:=6}
 export YEARLY=${YEARLY:=always}
 
+# Allow tests to override command locations (mocks)
+export AWS_CMD=${AWS_CMD:-aws}
+export JQ_CMD=${JQ_CMD:-jq}
+export ROTATE_BACKUPS_CMD=${ROTATE_BACKUPS_CMD:-/usr/local/bin/rotate-backups}
+
 if is_true "${DRYRUN}"; then
     AWS_EXTRA_ARG="--dryrun ${AWS_EXTRA_ARGS}"
 fi
@@ -62,20 +72,42 @@ function rotate-aws-backups() {
     # Get a listing of the backup bucket and recreate its filename structure
     info "scanning ${bucket}"
     # Use s3api + jq to safely list object keys (preserves whitespace and special chars).
-    # Note: for very large buckets handle pagination; list-objects-v2 returns up to 1000 keys per call.
-    aws s3api list-objects-v2 --bucket "${bucket}" --output json --query 'Contents[].Key' | jq -r '.[]' | while IFS= read -r key; do
-        # ensure any path components are created in the workdir
-        dir=$(dirname "${WORKDIR}/${key}")
-        mkdir -p "${dir}"
-        touch "${WORKDIR}/${key}"
+    # Handle pagination: list-objects-v2 returns up to 1000 keys per call and provides
+    # a NextContinuationToken when more pages are available.
+    token=""
+    while :; do
+        if [[ -n "${token}" ]]; then
+            page=$(${AWS_CMD} s3api list-objects-v2 --bucket "${bucket}" --continuation-token "${token}" --output json)
+        else
+            page=$(${AWS_CMD} s3api list-objects-v2 --bucket "${bucket}" --output json)
+        fi
+
+        echo "${page}" | ${JQ_CMD} -r '.Contents[]?.Key' | while IFS= read -r key; do
+            # ensure any path components are created in the workdir
+            dir=$(dirname "${WORKDIR}/${key}")
+            mkdir -p "${dir}"
+            touch "${WORKDIR}/${key}"
+        done
+
+        token=$(echo "${page}" | ${JQ_CMD} -r '.NextContinuationToken // empty')
+        [[ -z "${token}" ]] && break
     done
     
     # Run rotate-backups on the temp directory files (having the same
     # names as the backups on S3. We examine the output and delete
     # object on S3 as needed.
     info "begin rotate-backups"
+    # ensure log directory exists (may not be present or writable in test environment)
+    LOGDIR=/var/log/rotate-aws-backups
+    LOGFILE="${LOGDIR}/rotate-backups.log"
+    if mkdir -p "${LOGDIR}" 2>/dev/null && touch "${LOGFILE}" 2>/dev/null; then
+        :
+    else
+        LOGFILE="${WORKDIR}/rotate-backups.log"
+        touch "${LOGFILE}" || true
+    fi
     # shellcheck disable=SC2086
-    /usr/local/bin/rotate-backups \
+    ${ROTATE_BACKUPS_CMD} \
                --hourly="${HOURLY}" \
                --daily="${DAILY}" \
                --weekly="${WEEKLY}" \
@@ -84,42 +116,45 @@ function rotate-aws-backups() {
                --timestamp-pattern="${TIMESTAMP_PATTERN}" \
                ${ROTATE_BACKUPS_EXTRA_ARGS} \
                "${WORKDIR}" 2>&1 | \
-    tee >(info >> /var/log/rotate-aws-backups/rotate-backups.log) | \
+    tee "${LOGFILE}" | \
     grep -E -i '(Deleting|Ignoring|Preserving)' | \
-    awk '{ $1=$2=$3=$4=$5=""; print $0 }' | \
-    sed "s|${WORKDIR}/||g" | \
     sed 's/[Dd]eleting/delete/' | \
     sed 's/[Ii]gnoring/ignore/' | \
     sed 's/[Pp]reserving/preserve/' | \
-    while read -r message; do
-        action=$(echo "${message}" | awk '{print $1}' | tr '[:upper:]' '[:lower:]')
-        file=$(echo "${message}" | awk '{print $2}')
+    awk '{ action=tolower($1); file=$NF; print action "\t" file }' | \
+    while IFS=$'\t' read -r action file; do
+        # strip workdir prefix from file
+        file=${file#${WORKDIR}/}
         # keep relative key (may contain path components)
         OBJECT="s3://${bucket}/${file}"
         case "${action}" in
-            delete)   info "${message}"
+            delete)
+                      info "delete ${file}"
                       if is_false "${DRYRUN}"; then
                           # shellcheck disable=SC2086
-                          aws s3 rm ${AWS_EXTRA_ARGS} "${OBJECT}" | info
+                          ${AWS_CMD} s3 rm ${AWS_EXTRA_ARGS} "${OBJECT}" | info
                       else
                           info "DRYRUN s3 rm ${AWS_EXTRA_ARGS} ${OBJECT}"
                       fi
                       ;;
-            preserve) info "${message}"
+            preserve)
+                      info "preserve ${file}"
                       ;;
-            ignore)   if [[ "${DELETE_IGNORED}" = 'true' ]]; then \
-                          echo "${message}" | sed -E 's/Ignore/Delete/' | sed -E 's/ignore/delete/' | info
+            ignore)
+                      if [[ "${DELETE_IGNORED}" = 'true' ]]; then
+                          info "delete ignored ${file}"
                           if is_false "${DRYRUN}"; then
                               # shellcheck disable=SC2086
-                              aws s3 rm ${AWS_EXTRA_ARGS} "${OBJECT}" | info
+                              ${AWS_CMD} s3 rm ${AWS_EXTRA_ARGS} "${OBJECT}" | info
                           else
                               info "DRYRUN s3 rm ${AWS_EXTRA_ARGS} ${OBJECT}"
                           fi
                       else
-                          ignore "${message}"
+                          info "ignore ${file}"
                       fi
                       ;;
-            *)        ignore "${message}"
+            *)
+                      info "unknown action ${action} for ${file}"
                       ;;
         esac
     done
