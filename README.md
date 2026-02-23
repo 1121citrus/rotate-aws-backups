@@ -113,3 +113,8 @@ The AWS credentials are passed through the `aws-config` Docker compose [secret](
 1. `docker buildx build --sbom=true --provenance=true --provenance=mode=max --platform linux/amd64,linux/arm64 --tag 1121citrus/rotate-aws-backups:latest --tag 1121citrus/rotate-aws-backups:MAJOR.MINOR.PATCH --push .`
 
 &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;**NOTE**: Follow [semantic versioning](https://semver.org) conventions.
+
+Additional build notes:
+
+- The Docker image requires `jq` (used to parse `aws s3api` JSON output). The official Dockerfile installs `jq`.
+- To pin the `rotate-backups` Python package used by the image, pass `--build-arg ROTATE_BACKUPS_VERSION=X.Y.Z` to `docker build`.

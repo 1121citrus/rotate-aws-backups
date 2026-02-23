@@ -16,29 +16,42 @@
 # You should have received a copy of the GNU Affero General Public License
 # along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
-ARG HA_BASH_BASE_TAG=1.0.0
-FROM 1121citrus/ha-bash-base:${HA_BASH_BASE_TAG}
+ARG PYTHON_VERSION=3.12
+ARG ALPINE_VERSION=3.21
+ARG ROTATE_BACKUPS_VERSION=
 
-RUN apk add python3 py3-pip
+FROM python:${PYTHON_VERSION}-alpine${ALPINE_VERSION}
 
-RUN APK_PACKAGES="aws-cli python3 py3-pip pipx" \
-    && echo [INFO] start installing rotate-backups command \
-    && echo [INFO] installing apk packages: ${APK_PACKAGES} \
-    && apk update \
-    && apk add --no-cache ${APK_PACKAGES} \
-    && echo [INFO] completed installing apk packages ... \
-    && echo [INFO] installing pip packages: rotate-backups \
-    && pipx ensurepath \
-    && pipx install --global rotate-backups \
-    && mkdir -m 755 -p -v /usr/local/include/1121citrus /var/log/rotate-aws-backups \
-    && touch /var/log/rotate-aws-backups/rotate-backups.logA \
-    && echo [INFO] completed installing rotate-backups package
+ARG PYTHON_VERSION
+ENV PYTHON_VERSION=${PYTHON_VERSION}
 
+ARG ALPINE_VERSION
+ENV ALPINE_VERSION=${ALPINE_VERSION}
+
+RUN APK_PACKAGES="aws-cli bash coreutils jq" \
+        && echo [INFO] start installing rotate-aws-backups \
+        && echo [INFO] installing apk packages: ${APK_PACKAGES} \
+        && apk update \
+        && apk upgrade --no-cache --no-interactive \
+        && apk add --no-cache ${APK_PACKAGES} \
+        && echo [INFO] completed installing apk packages ... \
+        && echo [INFO] upgrading pip \
+        && pip install --no-cache-dir --upgrade pip \
+        && echo "[INFO] installing rotate-backups (pip)" \
+        && if [ -n "${ROTATE_BACKUPS_VERSION}" ]; then \
+                 pip install --no-cache-dir "rotate-backups==${ROTATE_BACKUPS_VERSION}"; \
+             else \
+                 pip install --no-cache-dir rotate-backups; \
+             fi \
+        && mkdir -m 755 -p -v /usr/local/include /var/log/rotate-aws-backups \
+        && touch /var/log/rotate-aws-backups/rotate-backups.log \
+        && echo [INFO] completed installing rotate-aws-backups
+
+COPY --chmod=644 ./src/include/common-functions /usr/local/include/
 COPY --chmod=755  ./src/healthcheck ./src/rotate ./src/rotate-aws-backups ./src/startup /usr/local/bin/
 
-# HEALTHCHECK --interval=30s --timeout=3s --retries=3 CMD /usr/local/bin/healthcheck
+HEALTHCHECK --interval=60s --timeout=5s --retries=3 CMD ["/usr/local/bin/healthcheck"]
 
 WORKDIR /
-ENTRYPOINT [ "/bin/sh", "-c" ]
-CMD [ "/usr/local/bin/startup" ]
+ENTRYPOINT ["/usr/local/bin/startup"]
 

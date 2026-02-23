@@ -20,7 +20,7 @@ bindir=$(readlink -f "$(dirname "${0}")")
 echo "${PATH}" | grep -q "${bindir}" || export PATH=${bindir}:${PATH}
 
 # shellcheck disable=SC1091
-source /usr/local/include/bash/common-functions
+source /usr/local/include/common-functions
 
 ENV=${ENV:-${HOME:-/root}/.env}
 # shellcheck disable=SC1090
@@ -61,8 +61,13 @@ function rotate-aws-backups() {
     local bucket=${1:?Need bucket}
     # Get a listing of the backup bucket and recreate its filename structure
     info "scanning ${bucket}"
-    aws s3 ls "s3://${bucket}" | awk '{print $4}' | while read -r f; do
-        touch "${WORKDIR}/${f}"
+    # Use s3api + jq to safely list object keys (preserves whitespace and special chars).
+    # Note: for very large buckets handle pagination; list-objects-v2 returns up to 1000 keys per call.
+    aws s3api list-objects-v2 --bucket "${bucket}" --output json --query 'Contents[].Key' | jq -r '.[]' | while IFS= read -r key; do
+        # ensure any path components are created in the workdir
+        dir=$(dirname "${WORKDIR}/${key}")
+        mkdir -p "${dir}"
+        touch "${WORKDIR}/${key}"
     done
     
     # Run rotate-backups on the temp directory files (having the same
@@ -89,8 +94,8 @@ function rotate-aws-backups() {
     while read -r message; do
         action=$(echo "${message}" | awk '{print $1}' | tr '[:upper:]' '[:lower:]')
         file=$(echo "${message}" | awk '{print $2}')
-        file=$(basename "${file}")
-        OBJECT=s3://${bucket}/${file}
+        # keep relative key (may contain path components)
+        OBJECT="s3://${bucket}/${file}"
         case "${action}" in
             delete)   info "${message}"
                       if is_false "${DRYRUN}"; then

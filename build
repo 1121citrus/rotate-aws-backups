@@ -1,0 +1,11 @@
+#!/usr/bin/env bash
+
+docker buildx build --sbom=true \
+                    --provenance=true \
+                    --provenance=mode=max \
+                    --platform linux/amd64,linux/arm64 \
+                    -t 1121citrus/rotate-aws-backups:dev \
+			.
+
+trivy image 1121citrus/rotate-aws-backups:dev
+
