@@ -7,21 +7,106 @@
 # it under the terms of the GNU Affero General Public License as published by
 # the Free Software Foundation, either version 3 of the License, or
 # (at your option) any later version.
-# 
+#
 # This program is distributed in the hope that it will be useful,
 # but WITHOUT ANY WARRANTY; without even the implied warranty of
 # MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
 # GNU Affero General Public License for more details.
-# 
+#
 # You should have received a copy of the GNU Affero General Public License
 # along with this program.  If not, see <https://www.gnu.org/licenses/>.
+#
+# SYNOPSIS
+#   rotate-aws-backups [options]
+#
+# DESCRIPTION
+#   Rotate objects in one or more AWS S3 buckets using the rotate-backups
+#   retention policy engine.
+#
+#   Scheduler mode is triggered by any of: --cron, --cron-expression, or the
+#   CRON_EXPRESSION environment variable. In scheduler mode a crontab entry is
+#   installed and crond is exec'd; output and exit status are those of crond.
+#   The crond-spawned jobs run in CLI mode (no scheduling trigger).
+#
+#   Without any scheduling trigger the command runs one rotation pass
+#   synchronously and exits; output and exit status are those of
+#   rotate-aws-backups itself.
+#
+#   Every env var listed below can be overridden by the corresponding CLI flag.
+#   CLI flags take precedence over environment values.
+#
+# OPTIONS
+#   -h,--help                        Display this help text
+#   -v,--version                     Display command version
+#
+#   Scheduler mode (any one triggers async/periodic execution):
+#   -c,--cron                        Enter scheduler mode using CRON_EXPRESSION
+#                                    (default: @daily)
+#   --cron-expression EXPR           Enter scheduler mode with schedule EXPR
+#                                    (env: CRON_EXPRESSION; implies --cron)
+#
+#   Rotation policy (each flag implies scheduler mode):
+#   --hourly N                       Hourly backups to keep
+#                                    (env: HOURLY; default: 24)
+#   --daily N                        Daily backups to keep
+#                                    (env: DAILY; default: 7)
+#   --weekly N                       Weekly backups to keep
+#                                    (env: WEEKLY; default: 4)
+#   --monthly N                      Monthly backups to keep
+#                                    (env: MONTHLY; default: 6)
+#   --yearly N                       Yearly backups to keep
+#                                    (env: YEARLY; default: always)
+#   --timestamp-pattern PATTERN      Regex for extracting timestamps
+#                                    (env: TIMESTAMP_PATTERN)
+#
+#   Bucket selection:
+#   -b,--bucket BUCKET               S3 bucket to rotate (env: BUCKET)
+#   --bucket-list LIST               Space-separated bucket list
+#                                    (env: BUCKET_LIST; default: BUCKET)
+#
+#   Execution control:
+#   --dryrun                         Enable dry-run; no deletions made
+#                                    (env: DRYRUN; default: true)
+#   --no-dryrun                      Disable dry-run; deletions are live
+#   --delete-ignored                 Delete objects with no recognisable
+#                                    timestamp (env: DELETE_IGNORED;
+#                                    default: false)
+#   --no-delete-ignored              Do not delete ignored objects (default)
+#
+#   AWS configuration:
+#   --aws-config FILE                AWS config file
+#                                    (env: AWS_CONFIG_FILE;
+#                                    default: /run/secrets/aws-config)
+#   --aws-extra-args ARGS            Extra args appended to every aws call
+#                                    (env: AWS_EXTRA_ARGS)
+#   --rotate-backups-extra-args ARGS Extra args appended to every
+#                                    rotate-backups invocation
+#                                    (env: ROTATE_BACKUPS_EXTRA_ARGS)
+#
+# ENVIRONMENT
+#   AWS_CONFIG_FILE          AWS configuration file
+#   AWS_EXTRA_ARGS           Additional aws CLI arguments
+#   BUCKET                   Single S3 bucket to rotate
+#   BUCKET_LIST              Space-separated list of buckets
+#   CRON_EXPRESSION          Schedule for --cron mode (default: @daily)
+#   DAILY                    Daily backups to keep (default: 7)
+#   DEBUG                    Enable bash -x tracing (default: false)
+#   DELETE_IGNORED           Delete objects with no recognisable timestamp
+#   DRYRUN                   Dry-run mode — no deletions (default: true)
+#   ENV                      Env-file path (default: ~/.env)
+#   HOURLY                   Hourly backups to keep (default: 24)
+#   MONTHLY                  Monthly backups to keep (default: 6)
+#   ROTATE_BACKUPS_EXTRA_ARGS  Additional rotate-backups arguments
+#   TIMESTAMP_PATTERN        Regex for extracting timestamps from filenames
+#   WEEKLY                   Weekly backups to keep (default: 4)
+#   YEARLY                   Yearly backups to keep (default: always)
 
 if command -v readlink >/dev/null 2>&1 && readlink -f "$(dirname "${0}")" >/dev/null 2>&1; then
     bindir=$(readlink -f "$(dirname "${0}")")
 else
     bindir=$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")" >/dev/null 2>&1 && pwd -P)
 fi
-echo "${PATH}" | grep -q "${bindir}" || export PATH=${bindir}:${PATH}
+echo "${PATH}" | grep -qF "${bindir}" || export PATH=${bindir}:${PATH}
 
 # shellcheck disable=SC1091
 # Allow tests to override the include dir via INCLUDE_DIR env var
@@ -34,55 +119,54 @@ ENV=${ENV:-${HOME:-/root}/.env}
 set -o errexit -o errtrace -o nounset -o pipefail
 is_true "${DEBUG:=false}" && set -o xtrace -o verbose
 
-export BUCKET=${BUCKET:=}
-export BUCKET_LIST="${BUCKET_LIST:=${BUCKET}}"
-export AWS_CONFIG_FILE=${AWS_CONFIG_FILE:=/run/secrets/aws-config}
-export AWS_EXTRA_ARGS="${AWS_EXTRA_ARGS:=}"
-export DELETE_IGNORED=${DELETE_IGNORED:=false}
-export DRYRUN=${DRYRUN:=true}
-export ROTATE_BACKUPS_EXTRA_ARGS=${ROTATE_BACKUPS_EXTRA_ARGS:=}
-export TIMESTAMP_PATTERN=${TIMESTAMP_PATTERN:='(?P<year>\d{4})(?P<month>\d{2})(?P<day>\d{2})[Tt](?P<hour>\d{2})(?P<minute>\d{2})(?P<second>\d{2})'}
-
-export HOURLY=${HOURLY:=24}
-export DAILY=${DAILY:=7}
-export WEEKLY=${WEEKLY:=4}
-export MONTHLY=${MONTHLY:=6}
-export YEARLY=${YEARLY:=always}
-
 # Allow tests to override command locations (mocks)
 export AWS_CMD=${AWS_CMD:-aws}
 export JQ_CMD=${JQ_CMD:-jq}
 export ROTATE_BACKUPS_CMD=${ROTATE_BACKUPS_CMD:-/usr/local/bin/rotate-backups}
 
-if is_true "${DRYRUN}"; then
-    AWS_EXTRA_ARG="--dryrun ${AWS_EXTRA_ARGS}"
-fi
+VERSION_FILE=/usr/local/share/rotate-aws-backups/version
 
-[[ -n "${BUCKET_LIST}" ]] || \
-    error "need to specify either BUCKET or BUCKET_LIST to be rotated"
+# ---------------------------------------------------------------------------
+# Function definitions (lexical order)
+# ---------------------------------------------------------------------------
 
-# Plan of action:
-#   - collect arguments
-#   - (within the initially empty work directory) create emoty file with the same corresponding
-#     object within the bucket.
-#   - run rotate-backups on our working directory
-#   - remove the objects on S3 corresponding to the files deleted by rotate-backups
+function cleanup() {
+    # Remove the temporary work directory on exit.
+    rm -rf "${WORKDIR:-}" >/dev/null 2>&1 || true
+}
+
 function rotate-aws-backups() {
+    # Rotate objects in a single S3 bucket.
+    # Usage:
+    #   rotate-aws-backups BUCKET
+    # Arguments:
+    #   BUCKET: name of the S3 bucket to rotate
     local bucket=${1:?Need bucket}
     # Get a listing of the backup bucket and recreate its filename structure
     info "scanning ${bucket}"
-    # Use s3api + jq to safely list object keys (preserves whitespace and special chars).
-    # Handle pagination: list-objects-v2 returns up to 1000 keys per call and provides
-    # a NextContinuationToken when more pages are available.
+    # Use s3api + jq to safely list object keys (preserves whitespace and
+    # special chars).  Handle pagination: list-objects-v2 returns up to 1000
+    # keys per call and provides a NextContinuationToken when more pages exist.
     token=""
     while :; do
         if [[ -n "${token}" ]]; then
-            page=$(${AWS_CMD} s3api list-objects-v2 --bucket "${bucket}" --continuation-token "${token}" --output json)
+            page=$(${AWS_CMD} s3api list-objects-v2 \
+                       --bucket "${bucket}" \
+                       --continuation-token "${token}" \
+                       --output json)
         else
-            page=$(${AWS_CMD} s3api list-objects-v2 --bucket "${bucket}" --output json)
+            page=$(${AWS_CMD} s3api list-objects-v2 \
+                       --bucket "${bucket}" \
+                       --output json)
         fi
 
         echo "${page}" | ${JQ_CMD} -r '.Contents[]?.Key' | while IFS= read -r key; do
+            # Guard against path traversal: reject keys that begin with '/'
+            # or contain a '..' path component (e.g. "../../etc/cron.d/evil").
+            if [[ "${key}" == /* ]] || [[ "${key}" =~ (^|/)\.\.(/|$) ]]; then
+                warn "Skipping S3 key with unsafe path component: ${key}"
+                continue
+            fi
             # ensure any path components are created in the workdir
             dir=$(dirname "${WORKDIR}/${key}")
             mkdir -p "${dir}"
@@ -92,12 +176,12 @@ function rotate-aws-backups() {
         token=$(echo "${page}" | ${JQ_CMD} -r '.NextContinuationToken // empty')
         [[ -z "${token}" ]] && break
     done
-    
+
     # Run rotate-backups on the temp directory files (having the same
-    # names as the backups on S3. We examine the output and delete
-    # object on S3 as needed.
+    # names as the backups on S3).  Examine the output and delete
+    # S3 objects as needed.
     info "begin rotate-backups"
-    # ensure log directory exists (may not be present or writable in test environment)
+    # Ensure log directory exists (may not be present or writable in tests)
     LOGDIR=/var/log/rotate-aws-backups
     LOGFILE="${LOGDIR}/rotate-backups.log"
     if mkdir -p "${LOGDIR}" 2>/dev/null && touch "${LOGFILE}" 2>/dev/null; then
@@ -117,14 +201,15 @@ function rotate-aws-backups() {
                ${ROTATE_BACKUPS_EXTRA_ARGS} \
                "${WORKDIR}" 2>&1 | \
     tee "${LOGFILE}" | \
-    grep -E -i '(Deleting|Ignoring|Preserving)' | \
+    { grep -E -i '(Deleting|Ignoring|Preserving)' || true; } | \
     sed 's/[Dd]eleting/delete/' | \
     sed 's/[Ii]gnoring/ignore/' | \
     sed 's/[Pp]reserving/preserve/' | \
-    awk '{ action=tolower($1); file=$NF; print action "\t" file }' | \
+    awk '{for(i=1;i<=NF;i++) if($i~/^(delete|preserve|ignore)$/){print $i"\t"$(i+1);break}}' | \
     while IFS=$'\t' read -r action file; do
-        # strip workdir prefix from file
-        file=${file#${WORKDIR}/}
+        # strip workdir prefix from file (quote the expansion to avoid glob)
+        local _prefix="${WORKDIR}/"
+        file="${file#"${_prefix}"}"
         # keep relative key (may contain path components)
         OBJECT="s3://${bucket}/${file}"
         case "${action}" in
@@ -158,22 +243,317 @@ function rotate-aws-backups() {
                       ;;
         esac
     done
-    
 }
 
-# Create a work directory
-WORKDIR=$(mktemp -d)
-function cleanup() {
-    rm -rf "${WORKDIR}" >/dev/null 2>&1 || true
+function run_scheduler() {
+    # Enter scheduler mode: write env file, install crontab, exec crond.
+    # CRON_EXPRESSION is intentionally omitted from the written env file so
+    # that the crond-invoked rotate-aws-backups runs in CLI mode rather than
+    # re-entering scheduler mode.
+    # Usage:
+    #   run_scheduler CRON_EXPR
+    # Arguments:
+    #   CRON_EXPR: cron schedule expression (e.g. "@daily", "0 4 * * *")
+    local cron_expr="${1:?Need cron expression}"
+
+    info "entering scheduler mode (${cron_expr})"
+
+    # Validate bucket config before committing to background operation.
+    [[ -n "${BUCKET_LIST}" ]] || \
+        error "need to specify either BUCKET or BUCKET_LIST to be rotated"
+
+    # Write the env file consumed by crond-invoked jobs.
+    # Use printf '%q' for every value so that values containing quotes,
+    # parentheses, braces, or other shell-special characters are safely escaped.
+    # CRON_EXPRESSION is explicitly unset so that cron jobs sourcing this file
+    # do not inherit the variable and re-enter scheduler mode.
+    ENV=${ENV:-${HOME:-/root}/.env}
+    touch "${ENV}"
+    chmod 0600 "${ENV}"
+    # Capture the TIMESTAMP_PATTERN default in a plain variable first to avoid
+    # the nested-brace / quoting ambiguity inside ${parameter:=word}.
+    local _ts_default
+    _ts_default='(?P<year>\d{4})(?P<month>\d{2})(?P<day>\d{2})[Tt](?P<hour>\d{2})(?P<minute>\d{2})(?P<second>\d{2})'
+    {
+        printf 'export AWS_CONFIG_FILE=%q\n'           "${AWS_CONFIG_FILE}"
+        printf 'export AWS_EXTRA_ARGS=%q\n'            "${AWS_EXTRA_ARGS}"
+        printf 'export BUCKET=%q\n'                    "${BUCKET}"
+        printf 'export BUCKET_LIST=%q\n'               "${BUCKET_LIST}"
+        printf 'export DAILY=%q\n'                     "${DAILY}"
+        printf 'export DEBUG=%q\n'                     "${DEBUG}"
+        printf 'export DELETE_IGNORED=%q\n'            "${DELETE_IGNORED}"
+        printf 'export DRYRUN=%q\n'                    "${DRYRUN}"
+        printf 'export HOURLY=%q\n'                    "${HOURLY}"
+        printf 'export MONTHLY=%q\n'                   "${MONTHLY}"
+        printf 'export ROTATE_BACKUPS_EXTRA_ARGS=%q\n' "${ROTATE_BACKUPS_EXTRA_ARGS}"
+        printf 'export TIMESTAMP_PATTERN=%q\n'         "${TIMESTAMP_PATTERN:-${_ts_default}}"
+        printf 'export WEEKLY=%q\n'                    "${WEEKLY}"
+        printf 'export YEARLY=%q\n'                    "${YEARLY}"
+        printf 'unset CRON_EXPRESSION\n'
+    } > "${ENV}"
+    info "wrote env file ${ENV}"
+    info < "${ENV}"
+
+    # Ensure log directory exists
+    (mkdir -pv /var/log/rotate-aws-backups \
+        && chmod 0755 /var/log/rotate-aws-backups \
+        && touch /var/log/rotate-aws-backups/rotate-backups.log) | info
+
+    # Install the crontab entry
+    local cmd=/usr/local/bin/rotate-aws-backups
+    info "installing cron entry: ${cron_expr} ${cmd}"
+    mkdir -p /var/spool/cron/crontabs
+    chmod 0755 /var/spool/cron/crontabs
+    printf '%s %s 2>&1\n' "${cron_expr}" "${cmd}" \
+        > /var/spool/cron/crontabs/root
+    chmod 0644 /var/spool/cron/crontabs/root
+    info "crontab: $(cat /var/spool/cron/crontabs/root)"
+
+    info "handing off to crond"
+    exec crond -l 2 -f
 }
+
+function show_help() {
+    # Display command usage help.
+    cat <<'EOF'
+Usage: rotate-aws-backups [options]
+
+Rotate objects in one or more AWS S3 buckets using the rotate-backups
+retention policy engine.
+
+Scheduler mode is triggered by any scheduling flag (--cron,
+--cron-expression, --hourly, --daily, --weekly, --monthly, --yearly) or the
+CRON_EXPRESSION environment variable. In scheduler mode a crontab entry is
+installed and crond is exec'd; output and exit status are those of crond.
+
+Without any scheduling trigger the command runs one rotation pass
+synchronously and exits.
+
+Options:
+  -h,--help                        Display this help text
+  -v,--version                     Display command version
+
+  Scheduling (any one triggers async/periodic execution via crond):
+  -c,--cron                        Enter scheduler mode using CRON_EXPRESSION
+                                   (default: @daily)
+  --cron-expression EXPR           Scheduler mode; use EXPR as the schedule
+                                   (env: CRON_EXPRESSION; implies --cron)
+  --hourly N                       Hourly backups to keep; implies --cron
+                                   (env: HOURLY; default: 24)
+  --daily N                        Daily backups to keep; implies --cron
+                                   (env: DAILY; default: 7)
+  --weekly N                       Weekly backups to keep; implies --cron
+                                   (env: WEEKLY; default: 4)
+  --monthly N                      Monthly backups to keep; implies --cron
+                                   (env: MONTHLY; default: 6)
+  --yearly N                       Yearly backups to keep; implies --cron
+                                   (env: YEARLY; default: always)
+  --timestamp-pattern PATTERN      Regex for extracting timestamps
+                                   (env: TIMESTAMP_PATTERN)
+
+  Bucket selection:
+  -b,--bucket BUCKET               S3 bucket to rotate (env: BUCKET)
+  --bucket-list LIST               Space-separated bucket list
+                                   (env: BUCKET_LIST; default: BUCKET)
+
+  Execution control:
+  --dryrun                         Enable dry-run; no deletions made
+                                   (env: DRYRUN; default: true)
+  --no-dryrun                      Disable dry-run; deletions are live
+  --delete-ignored                 Delete objects with no recognisable
+                                   timestamp (env: DELETE_IGNORED;
+                                   default: false)
+  --no-delete-ignored              Do not delete ignored objects (default)
+
+  AWS configuration:
+  --aws-config FILE                AWS config file
+                                   (env: AWS_CONFIG_FILE;
+                                   default: /run/secrets/aws-config)
+  --aws-extra-args ARGS            Extra args appended to every aws call
+                                   (env: AWS_EXTRA_ARGS)
+  --rotate-backups-extra-args ARGS Extra args appended to every
+                                   rotate-backups invocation
+                                   (env: ROTATE_BACKUPS_EXTRA_ARGS)
+
+Dry-run is enabled by default. Pass --no-dryrun (or set DRYRUN=false)
+to perform actual deletions.
+
+Examples:
+  # One-shot dry-run rotation (CLI mode):
+  rotate-aws-backups --bucket my-backups
+
+  # One-shot live rotation with custom retention (CLI mode):
+  rotate-aws-backups --bucket my-backups --no-dryrun \
+      --daily 14 --weekly 8
+
+  # Scheduler mode — daily at midnight (default schedule):
+  rotate-aws-backups --cron --bucket my-backups
+
+  # Scheduler mode — custom schedule via flag (implies --cron):
+  rotate-aws-backups --cron-expression "0 4 * * *" \
+      --bucket my-backups --no-dryrun
+
+  # Scheduler mode — custom schedule via env var (implies --cron):
+  CRON_EXPRESSION="0 4 * * *" rotate-aws-backups --bucket my-backups
+EOF
+}
+
+function show_version() {
+    # Display the installed version of rotate-aws-backups.
+    cat "${VERSION_FILE}" 2>/dev/null || echo "unknown"
+}
+
+# ---------------------------------------------------------------------------
+# Defaults from environment (CLI flags below override these).
+# ---------------------------------------------------------------------------
+export BUCKET=${BUCKET:=}
+export BUCKET_LIST="${BUCKET_LIST:=${BUCKET}}"
+export AWS_CONFIG_FILE=${AWS_CONFIG_FILE:=/run/secrets/aws-config}
+export AWS_EXTRA_ARGS="${AWS_EXTRA_ARGS:=}"
+# Capture whether CRON_EXPRESSION was set in the environment before applying
+# the default — a pre-set CRON_EXPRESSION implies scheduler mode.
+_cron_expression_from_env=false
+[[ -v CRON_EXPRESSION ]] && _cron_expression_from_env=true
+export CRON_EXPRESSION=${CRON_EXPRESSION:=@daily}
+export DELETE_IGNORED=${DELETE_IGNORED:=false}
+export DRYRUN=${DRYRUN:=true}
+export ROTATE_BACKUPS_EXTRA_ARGS=${ROTATE_BACKUPS_EXTRA_ARGS:=}
+export TIMESTAMP_PATTERN=${TIMESTAMP_PATTERN:='(?P<year>\d{4})(?P<month>\d{2})(?P<day>\d{2})[Tt](?P<hour>\d{2})(?P<minute>\d{2})(?P<second>\d{2})'}
+
+export HOURLY=${HOURLY:=24}
+export DAILY=${DAILY:=7}
+export WEEKLY=${WEEKLY:=4}
+export MONTHLY=${MONTHLY:=6}
+export YEARLY=${YEARLY:=always}
+
+# Note: deletion is gated by is_false "${DRYRUN}" below; no --dryrun flag
+# is passed to aws.
+
+# ---------------------------------------------------------------------------
+# CLI argument parsing — flags override env defaults above.
+# ---------------------------------------------------------------------------
+CRON_MODE=false
+_bucket_set=false
+_bucket_list_set=false
+
+while [[ $# -gt 0 ]]; do
+    case "${1}" in
+        -h|--help)
+            show_help
+            exit 0
+            ;;
+        -v|--version)
+            show_version
+            exit 0
+            ;;
+        -c|--cron)
+            CRON_MODE=true
+            ;;
+        --cron-expression)
+            [[ $# -ge 2 ]] || error "option '${1}' requires an argument"
+            CRON_EXPRESSION="${2}"; CRON_MODE=true; shift
+            ;;
+        -b|--bucket)
+            [[ $# -ge 2 ]] || error "option '${1}' requires an argument"
+            BUCKET="${2}"; _bucket_set=true; shift
+            ;;
+        --bucket-list)
+            [[ $# -ge 2 ]] || error "option '${1}' requires an argument"
+            BUCKET_LIST="${2}"; _bucket_list_set=true; shift
+            ;;
+        --aws-config)
+            [[ $# -ge 2 ]] || error "option '${1}' requires an argument"
+            AWS_CONFIG_FILE="${2}"; shift
+            ;;
+        --aws-extra-args)
+            [[ $# -ge 2 ]] || error "option '${1}' requires an argument"
+            AWS_EXTRA_ARGS="${2}"; shift
+            ;;
+        --dryrun)
+            DRYRUN=true
+            ;;
+        --no-dryrun)
+            DRYRUN=false
+            ;;
+        --delete-ignored)
+            DELETE_IGNORED=true
+            ;;
+        --no-delete-ignored)
+            DELETE_IGNORED=false
+            ;;
+        --hourly)
+            [[ $# -ge 2 ]] || error "option '${1}' requires an argument"
+            HOURLY="${2}"; CRON_MODE=true; shift
+            ;;
+        --daily)
+            [[ $# -ge 2 ]] || error "option '${1}' requires an argument"
+            DAILY="${2}"; CRON_MODE=true; shift
+            ;;
+        --weekly)
+            [[ $# -ge 2 ]] || error "option '${1}' requires an argument"
+            WEEKLY="${2}"; CRON_MODE=true; shift
+            ;;
+        --monthly)
+            [[ $# -ge 2 ]] || error "option '${1}' requires an argument"
+            MONTHLY="${2}"; CRON_MODE=true; shift
+            ;;
+        --yearly)
+            [[ $# -ge 2 ]] || error "option '${1}' requires an argument"
+            YEARLY="${2}"; CRON_MODE=true; shift
+            ;;
+        --timestamp-pattern)
+            [[ $# -ge 2 ]] || error "option '${1}' requires an argument"
+            TIMESTAMP_PATTERN="${2}"; shift
+            ;;
+        --rotate-backups-extra-args)
+            [[ $# -ge 2 ]] || error "option '${1}' requires an argument"
+            ROTATE_BACKUPS_EXTRA_ARGS="${2}"; shift
+            ;;
+        --)
+            shift; break
+            ;;
+        -*)
+            error "${EXIT_USAGE}" "unknown option: '${1}'"
+            ;;
+        *)
+            error "${EXIT_USAGE}" "unexpected argument: '${1}'"
+            ;;
+    esac
+    shift
+done
+
+# If --bucket was given but --bucket-list was not, derive BUCKET_LIST from BUCKET.
+if "${_bucket_set}" && ! "${_bucket_list_set}"; then
+    BUCKET_LIST="${BUCKET}"
+fi
+export BUCKET BUCKET_LIST CRON_EXPRESSION
+
+# CRON_EXPRESSION set in the environment (not just the compiled-in default)
+# implies scheduler mode, same as passing --cron or --cron-expression.
+if "${_cron_expression_from_env}"; then
+    CRON_MODE=true
+fi
+
+# ---------------------------------------------------------------------------
+# Dispatch: scheduler mode or CLI mode.
+# ---------------------------------------------------------------------------
+
+if [[ "${CRON_MODE}" == "true" ]]; then
+    # run_scheduler writes the env file and execs crond — never returns.
+    run_scheduler "${CRON_EXPRESSION}"
+fi
+
+# CLI mode: run one rotation pass and exit.
+[[ -n "${BUCKET_LIST}" ]] || \
+    error "need to specify either BUCKET or BUCKET_LIST to be rotated"
+
+WORKDIR=$(mktemp -d)
 trap cleanup EXIT
 
 for bucket in ${BUCKET_LIST:?Need BUCKET_LIST}; do
     info "begin '${bucket}' bucket rotation"
-    rotate-aws-backups "${bucket}" "${@}"
+    rotate-aws-backups "${bucket}"
     info "completed '${bucket}' bucket rotation"
     cleanup
     WORKDIR=$(mktemp -d)
 done
-
-

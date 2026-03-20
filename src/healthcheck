@@ -36,7 +36,7 @@ function has_cronjob_run() {
 }
 
 function is_crond_running() {
-    if (ps aux | grep -iq crond); then
+    if pgrep -x crond >/dev/null 2>&1; then
         true || info crond is running
     else
         error crond is not running
@@ -44,7 +44,9 @@ function is_crond_running() {
 }
 
 function is_crontab_configured() {
-    if (crontab -l | grep -q " /usr/local/bin/rotate-aws-backups >/dev/null 2>&1"); then
+    # Match the command path only; do not require a specific redirect syntax so
+    # this stays in sync with whatever startup writes to the crontab file.
+    if (crontab -l | grep -qF "/usr/local/bin/rotate-aws-backups"); then
         true || info crontab is configured
     else
         error crontab is not configured

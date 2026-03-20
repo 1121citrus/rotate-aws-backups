@@ -1,0 +1,31 @@
+#!/usr/bin/env bash
+# Minimal jq mock used by tests.
+# Supports '-r' and simple filters: '.Contents[]?.Key' and '.NextContinuationToken // empty'
+
+set -o errexit -o nounset -o pipefail
+
+# consume -r if present
+if [[ "$1" = "-r" ]]; then
+  shift
+fi
+filter="$1"
+
+input=$(cat)
+
+if [[ "$filter" = ".Contents[]?.Key" ]]; then
+  # output all Key values
+  echo "$input" | grep -o '"Key" *: *"[^"]*"' | sed -E 's/"Key" *: *"([^"]*)"/\1/'
+  exit 0
+fi
+
+if [[ "$filter" = ".NextContinuationToken // empty" ]]; then
+  token=$(echo "$input" | grep -o '"NextContinuationToken" *: *"[^"]*"' | sed -E 's/"NextContinuationToken" *: *"([^"]*)"/\1/') || true
+  if [[ -n "$token" ]]; then
+    echo "$token"
+  fi
+  exit 0
+fi
+
+# fallback: print input
+echo "$input"
+exit 0

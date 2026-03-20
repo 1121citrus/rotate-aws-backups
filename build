@@ -1,11 +1,338 @@
 #!/usr/bin/env bash
 
-docker buildx build --sbom=true \
-                    --provenance=true \
-                    --provenance=mode=max \
-                    --platform linux/amd64,linux/arm64 \
-                    -t 1121citrus/rotate-aws-backups:dev \
-			.
+# build — local CI equivalent for rotate-aws-backups.
+#
+# Copyright (C) 2025 James Hanlon [mailto:jim@hanlonsoftware.com]
+# SPDX-License-Identifier: AGPL-3.0-or-later
+#
+# SYNOPSIS
+#   build [--push] [--version VERSION] [--platform PLATFORMS]
+#         [--registry REGISTRY] [--no-sbom] [--no-provenance]
+#         [--no-lint] [--no-test] [--no-scan] [--advise] [--no-advise]
+#         [--dry-run] [--help]
+#
+# OPTIONS
+#   --push              Push the image to the registry after a successful build.
+#                       Omitting this flag builds locally only (the default).
+#   --version VERSION   Tag the image with this version string, e.g. "1.2.3".
+#                       When omitted the image is tagged "dev-<git-short-sha>"
+#                       so that local builds are never confused with released
+#                       artifacts.
+#   --platform PLATFORMS
+#                       Comma-separated list of target platforms for --push.
+#                       Default: linux/amd64,linux/arm64
+#   --registry REGISTRY Docker Hub username / registry prefix.
+#                       Default: 1121citrus
+#   --no-sbom           Skip generating an SBOM attestation (push only).
+#   --no-provenance     Skip generating a provenance attestation (push only).
+#   --no-lint           Skip hadolint Dockerfile check.
+#   --no-test           Skip running the bats test suite.
+#   --no-scan           Skip the Trivy vulnerability scan (gating).
+#                       Also skips Grype (stage 5) by default; pass --advise
+#                       after --no-scan to keep the advisory scan.
+#   --advise            Run the Grype advisory scan even when --no-scan is set.
+#   --no-advise         Skip the Grype advisory scan (non-gating).
+#   --dry-run           Print each command without executing it.
+#   --help              Print this message and exit.
+#
+# ENVIRONMENT
+#   The following env-var overrides take precedence over the defaults above but
+#   are themselves overridden by the matching CLI flag:
+#     BUILD_VERSION, BUILD_PUSH, BUILD_PLATFORM, BUILD_REGISTRY
+#     BUILD_LINT, BUILD_TEST, BUILD_SCAN, BUILD_ADVISE
+#   ROTATE_BACKUPS_VERSION
+#     Optional: pin the rotate-backups Python package version passed as a
+#     build-arg, e.g. ROTATE_BACKUPS_VERSION=7.1 ./build
+#
+# PREREQUISITES
+#   • docker with the buildx plugin (≥ 0.10)
+#   • For --push: docker login <registry> must already be authenticated, plus
+#     QEMU binfmt helpers for cross-platform builds:
+#       docker run --rm --privileged tonistiigi/binfmt --install all
+#
+# STAGES (run in order; each can be skipped with --no-<stage>)
+#   1. Lint   — hadolint (Dockerfile)
+#   2. Build  — single-platform --load into local Docker daemon
+#   3. Test   — bats test suite (runs in bats/bats:latest Docker container)
+#   4. Scan   — Trivy CRITICAL/HIGH image scan (blocking; exit 1 on findings)
+#   5. Advise — Grype full-severity scan (advisory only; never blocks the build)
+#   6. Push   — multi-platform rebuild + push to registry (only with --push)
+#
+# EXAMPLES
+#   # Local dev cycle — lint, build, test, scan
+#   ./build
+#
+#   # Release build — push version 1.2.3 and latest
+#   ./build --push --version 1.2.3
+#
+#   # Pin the rotate-backups version
+#   ROTATE_BACKUPS_VERSION=7.1 ./build
+#
+#   # Dry-run: just print each command
+#   ./build --dry-run
 
-trivy image 1121citrus/rotate-aws-backups:dev
+set -euo pipefail
 
+# ---------------------------------------------------------------------------
+# Defaults — may be overridden by environment variables or CLI flags.
+# ---------------------------------------------------------------------------
+PUSH=${BUILD_PUSH:-false}
+VERSION=${BUILD_VERSION:-}
+PLATFORMS=${BUILD_PLATFORM:-linux/amd64,linux/arm64}
+REGISTRY=${BUILD_REGISTRY:-1121citrus}
+SBOM=true
+PROVENANCE=true
+LINT=${BUILD_LINT:-true}
+TEST=${BUILD_TEST:-true}
+SCAN=${BUILD_SCAN:-true}
+ADVISE=${BUILD_ADVISE:-true}
+_ADVISE_EXPLICIT=false   # set true when --advise or --no-advise is passed
+DRY_RUN=false
+
+IMAGE_NAME=rotate-aws-backups
+
+# Tool image references — update these to pin analyser versions project-wide.
+HADOLINT_IMAGE=hadolint/hadolint
+HADOLINT_TAG=v2.12.0
+MARKDOWNLINT_IMAGE=ghcr.io/igorshubovych/markdownlint-cli
+MARKDOWNLINT_TAG=v0.48.0
+SHELLCHECK_IMAGE=koalaman/shellcheck
+SHELLCHECK_TAG=v0.10.0
+TRIVY_IMAGE=aquasec/trivy
+TRIVY_TAG=0.62.1
+GRYPE_IMAGE=anchore/grype
+GRYPE_TAG=v0.87.0
+
+# ---------------------------------------------------------------------------
+# Argument parsing
+# ---------------------------------------------------------------------------
+while [[ $# -gt 0 ]]; do
+    case "$1" in
+        --push)             PUSH=true ;;
+        --version)          VERSION="$2"; shift ;;
+        --platform)         PLATFORMS="$2"; shift ;;
+        --registry)         REGISTRY="$2"; shift ;;
+        --no-sbom)          SBOM=false ;;
+        --no-provenance)    PROVENANCE=false ;;
+        --no-lint)          LINT=false ;;
+        --no-test)          TEST=false ;;
+        --no-scan)          SCAN=false ;;
+        --advise)           ADVISE=true;  _ADVISE_EXPLICIT=true ;;
+        --no-advise)        ADVISE=false; _ADVISE_EXPLICIT=true ;;
+        --dry-run)          DRY_RUN=true ;;
+        --help|-h)
+            sed -n '3,/^# EXAMPLES/p' "$0" | grep '^#' | sed 's/^# \{0,1\}//'
+            exit 0 ;;
+        *)
+            echo "Unknown option: $1" >&2
+            exit 1 ;;
+    esac
+    shift
+done
+
+# --no-scan implies --no-advise unless --advise was given explicitly.
+if [[ "${SCAN}" == "false" && "${_ADVISE_EXPLICIT}" == "false" ]]; then
+    ADVISE=false
+fi
+
+# ---------------------------------------------------------------------------
+# Resolve the image version tag.
+# ---------------------------------------------------------------------------
+if [[ -z "${VERSION}" ]]; then
+    sha=$(git -C "$(dirname "$0")" rev-parse --short HEAD 2>/dev/null || echo "unknown")
+    VERSION="dev-${sha}"
+fi
+
+# ---------------------------------------------------------------------------
+# Construct the tag list.
+# "latest" is only added for non-dev (release) builds that will be pushed.
+# ---------------------------------------------------------------------------
+full_image="${REGISTRY}/${IMAGE_NAME}"
+tags=("--tag" "${full_image}:${VERSION}")
+if [[ "${PUSH}" == "true" && "${VERSION}" != dev-* ]]; then
+    tags+=("--tag" "${full_image}:latest")
+fi
+
+# Optional build-arg to pin the rotate-backups Python package version.
+rotate_build_arg=()
+if [[ -n "${ROTATE_BACKUPS_VERSION:-}" ]]; then
+    rotate_build_arg=("--build-arg" "ROTATE_BACKUPS_VERSION=${ROTATE_BACKUPS_VERSION}")
+fi
+
+# Build-arg for the application version (stored in the image as a version file).
+version_build_arg=("--build-arg" "VERSION=${VERSION}")
+
+# ---------------------------------------------------------------------------
+# Helper: execute a command or print it for --dry-run.
+# ---------------------------------------------------------------------------
+run() {
+    if [[ "${DRY_RUN}" == "true" ]]; then
+        echo "[DRY RUN]" "$@" >&2
+    else
+        "$@"
+    fi
+}
+
+# Script directory for build context and relative paths.
+script_dir=$(dirname "$(readlink -f "$0")")
+
+echo "Image:     ${full_image}:${VERSION}" >&2
+echo "Platforms: ${PLATFORMS}" >&2
+echo "Push:      ${PUSH}" >&2
+echo "" >&2
+
+# ---------------------------------------------------------------------------
+# Stage 1: Lint
+# ---------------------------------------------------------------------------
+if [[ "${LINT}" == "true" ]]; then
+    echo "==> Stage 1: Lint" >&2
+
+    echo "    hadolint Dockerfile" >&2
+    if [[ "${DRY_RUN}" == "true" ]]; then
+        echo "[DRY RUN] docker run --rm -i hadolint/hadolint < Dockerfile" >&2
+    else
+        docker run --rm -i "${HADOLINT_IMAGE}:${HADOLINT_TAG}" < "${script_dir}/Dockerfile"
+    fi
+
+    echo "    shellcheck bash scripts" >&2
+    run docker run --rm \
+        -v "${script_dir}:/mnt:ro" \
+        --workdir /mnt \
+        "${SHELLCHECK_IMAGE}:${SHELLCHECK_TAG}" \
+            build \
+            src/healthcheck \
+            src/include/common-functions \
+            src/rotate \
+            src/rotate-aws-backups \
+            src/startup \
+            test/bin/aws \
+            test/bin/jq \
+            test/bin/rotate-backups \
+            test/staging \
+            test/test_helper.bash
+
+    echo "    markdownlint markdown files" >&2
+    run docker run --rm \
+        -v "${script_dir}:/md:ro" \
+        --workdir /md \
+        "${MARKDOWNLINT_IMAGE}:${MARKDOWNLINT_TAG}" \
+            '**/*.md'
+fi
+
+# ---------------------------------------------------------------------------
+# Stage 2: Build (local, single-platform)
+# ---------------------------------------------------------------------------
+echo "==> Stage 2: Build ${full_image}:${VERSION}" >&2
+
+host_platform=$(docker info --format '{{.OSType}}/{{.Architecture}}' 2>/dev/null \
+    || echo "linux/amd64")
+
+build_cmd=(
+    docker buildx build
+    --platform "${host_platform}"
+    "${tags[@]}"
+    "${rotate_build_arg[@]}"
+    "${version_build_arg[@]}"
+    --load
+)
+
+if [[ -n "${BUILD_EXTRA_ARGS:-}" ]]; then
+    # shellcheck disable=SC2206
+    build_cmd+=(${BUILD_EXTRA_ARGS})
+fi
+
+build_cmd+=("${script_dir}")
+
+if [[ "${DRY_RUN}" == "true" ]]; then
+    echo "[DRY RUN] Would execute:" >&2
+    printf '  %s \\\n' "${build_cmd[@]}"
+else
+    "${build_cmd[@]}"
+fi
+
+# ---------------------------------------------------------------------------
+# Stage 3: Test (bats)
+# ---------------------------------------------------------------------------
+# Tests run inside the official bats/bats:latest container with the project
+# source bind-mounted.  This avoids requiring bats to be installed on the host
+# and keeps the test environment consistent with CI.
+if [[ "${TEST}" == "true" ]]; then
+    echo "==> Stage 3: Test" >&2
+    run docker run --rm \
+        -v "${script_dir}:/code:ro" \
+        -w /code \
+        bats/bats:latest \
+            test/01-dockerfile.bats \
+            test/02-functional.bats
+fi
+
+# ---------------------------------------------------------------------------
+# Stage 4: Scan (Trivy)
+# ---------------------------------------------------------------------------
+if [[ "${SCAN}" == "true" ]]; then
+    echo "==> Stage 4: Scan ${full_image}:${VERSION}" >&2
+    run docker run --rm \
+        -v /var/run/docker.sock:/var/run/docker.sock:ro \
+        "${TRIVY_IMAGE}:${TRIVY_TAG}" image \
+            --quiet \
+            --exit-code 1 \
+            --ignore-unfixed \
+            --severity HIGH,CRITICAL \
+            "${full_image}:${VERSION}"
+fi
+
+# ---------------------------------------------------------------------------
+# Stage 5: Advise (Grype — non-gating)
+# Runs a full-severity Grype scan and prints findings to the build log.
+# Never sets a non-zero exit code due to vulnerability findings; the build
+# continues regardless of what Grype reports.
+# ---------------------------------------------------------------------------
+if [[ "${ADVISE}" == "true" ]]; then
+    echo "==> Stage 5: Advise ${full_image}:${VERSION}" >&2
+    run docker run --rm \
+        -v /var/run/docker.sock:/var/run/docker.sock:ro \
+        "${GRYPE_IMAGE}:${GRYPE_TAG}" \
+            "${full_image}:${VERSION}" || true
+fi
+
+# ---------------------------------------------------------------------------
+# Stage 6: Push (multi-platform)
+# Only runs when --push is specified; rebuilds for all target platforms.
+# ---------------------------------------------------------------------------
+if [[ "${PUSH}" == "true" ]]; then
+    echo "==> Stage 6: Push ${full_image}:${VERSION} (${PLATFORMS})" >&2
+
+    if [[ "${PROVENANCE}" == "true" ]]; then
+        provenance_flag="--provenance=mode=max"
+    else
+        provenance_flag="--provenance=false"
+    fi
+
+    push_cmd=(
+        docker buildx build
+        --platform "${PLATFORMS}"
+        "${tags[@]}"
+        "${rotate_build_arg[@]}"
+        "${version_build_arg[@]}"
+        "--sbom=${SBOM}"
+        "${provenance_flag}"
+        --push
+    )
+
+    if [[ -n "${BUILD_EXTRA_ARGS:-}" ]]; then
+        # shellcheck disable=SC2206
+        push_cmd+=(${BUILD_EXTRA_ARGS})
+    fi
+
+    push_cmd+=("${script_dir}")
+
+    if [[ "${DRY_RUN}" == "true" ]]; then
+        echo "[DRY RUN] Would execute:" >&2
+        printf '  %s \\\n' "${push_cmd[@]}"
+    else
+        "${push_cmd[@]}"
+    fi
+fi
+
+echo "" >&2
+echo "Done: ${full_image}:${VERSION}" >&2

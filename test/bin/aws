@@ -1,0 +1,53 @@
+#!/usr/bin/env bash
+# Minimal aws CLI mock for tests.
+# Supports: s3api list-objects-v2 and s3 rm
+
+set -o errexit -o nounset -o pipefail
+
+logdir="${TEST_TMPDIR:-/tmp}/aws-mock"
+mkdir -p "$logdir"
+
+cmd="$1"; shift || true
+if [[ "$cmd" = "s3api" && "$1" = "list-objects-v2" ]]; then
+    # parse args for --continuation-token
+    continuation=""
+    _bucket=""
+    while [[ $# -gt 0 ]]; do
+        case "$1" in
+            --bucket) _bucket="$2"; shift 2;;
+            --continuation-token) continuation="$2"; shift 2;;
+            --output|--query) shift 2;;
+            *) shift;;
+        esac
+    done
+
+    if [[ -z "$continuation" ]]; then
+        # first page
+        cat <<'JSON'
+{
+  "Contents": [ { "Key": "a" }, { "Key": "b" } ],
+  "NextContinuationToken": "tok1"
+}
+JSON
+    else
+        # second (final) page
+        cat <<'JSON'
+{
+  "Contents": [ { "Key": "c" } ]
+}
+JSON
+    fi
+    exit 0
+fi
+
+if [[ "$cmd" = "s3" && "$1" = "rm" ]]; then
+    # record rm invocations
+    shift
+    logfile="${AWS_MOCK_RM_LOG:-${logdir}/rm.log}"
+    echo "$*" >> "$logfile"
+    echo "(mock) removed: $*"
+    exit 0
+fi
+
+echo "aws mock: unsupported command: $cmd $*" >&2
+exit 2

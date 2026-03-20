@@ -1,0 +1,15 @@
+#!/usr/bin/env bash
+# Mock rotate-backups for tests. Prints Deleting/Preserving/Ignoring lines
+
+## Use the last argument as the directory so mocks work when options
+## are passed before the directory (same calling pattern as real tool).
+dir="${*: -1}"
+dir="${dir:-/tmp}"
+
+# 'a' and 'c' are both deleted so the pagination test can verify that objects
+# from page 1 (a) and page 2 (c) are both processed and removed from S3.
+echo "Deleting ${dir}/a .."
+echo "Preserving ${dir}/b .."
+echo "Deleting ${dir}/c .."
+
+exit 0

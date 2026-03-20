@@ -33,7 +33,7 @@ function is-false() {
 function is-true() {
     local value
     if [[ "${#@}" = "0" ]]; then
-        value=$(cat /dev/stdin | head -n 1)
+        value=$(head -n 1 < /dev/stdin)
     else
         value="$*"
     fi
