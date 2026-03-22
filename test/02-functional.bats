@@ -59,6 +59,34 @@ teardown() {
   [ "$status" -ne 0 ]
 }
 
+@test "CLI mode without bucket exits non-zero" {
+  # CLI mode (no scheduling flag) requires BUCKET or BUCKET_LIST.
+  run env \
+    BUCKET= \
+    BUCKET_LIST= \
+    INCLUDE_DIR="${INCLUDE_DIR}" \
+    bash "${repo_root}/src/rotate-aws-backups"
+  [ "$status" -ne 0 ]
+}
+
+@test "unknown option exits non-zero" {
+  run bash "${repo_root}/src/rotate-aws-backups" --not-a-real-flag
+  [ "$status" -ne 0 ]
+}
+
+@test "CRON_EXPRESSION env var implies scheduler mode" {
+  # When CRON_EXPRESSION is set before the script runs, _cron_expression_from_env
+  # is set and CRON_MODE becomes true — scheduler mode is entered regardless of
+  # whether --cron is passed.  With no bucket the scheduler fails early.
+  run env \
+    CRON_EXPRESSION="@daily" \
+    BUCKET= \
+    BUCKET_LIST= \
+    INCLUDE_DIR="${INCLUDE_DIR}" \
+    bash "${repo_root}/src/rotate-aws-backups"
+  [ "$status" -ne 0 ]
+}
+
 # ---------------------------------------------------------------------------
 # Rotation tests
 # ---------------------------------------------------------------------------
@@ -422,5 +450,191 @@ EOF
   if [ -f "${AWS_MOCK_RM_LOG}" ]; then
     run grep -F "../../etc/evil" "${AWS_MOCK_RM_LOG}"
     [ "$status" -ne 0 ]
+  fi
+}
+
+@test "path traversal: absolute key is skipped" {
+  # A key beginning with '/' must be rejected by the path-traversal guard.
+  cat > "${TEST_TMPDIR}/bin/aws-abs-key" << 'EOF'
+#!/usr/bin/env bash
+set -o errexit -o nounset -o pipefail
+cmd="$1"; shift || true
+if [[ "$cmd" = "s3api" && "$1" = "list-objects-v2" ]]; then
+    cat <<'JSON'
+{ "Contents": [ { "Key": "/etc/evil" } ] }
+JSON
+    exit 0
+fi
+if [[ "$cmd" = "s3" && "$1" = "rm" ]]; then
+    shift
+    echo "$*" >> "${AWS_MOCK_RM_LOG:-/tmp/rm.log}"
+    exit 0
+fi
+echo "aws mock: unsupported: $cmd $*" >&2; exit 2
+EOF
+  chmod +x "${TEST_TMPDIR}/bin/aws-abs-key"
+
+  # Empty WORKDIR means rotate-backups makes no decisions.
+  cat > "${TEST_TMPDIR}/bin/rotate-backups-empty" << 'EOF'
+#!/usr/bin/env bash
+exit 0
+EOF
+  chmod +x "${TEST_TMPDIR}/bin/rotate-backups-empty"
+
+  run env \
+    BUCKET=test-bucket \
+    BUCKET_LIST=test-bucket \
+    DRYRUN=false \
+    ROTATE_BACKUPS_CMD="${TEST_TMPDIR}/bin/rotate-backups-empty" \
+    AWS_CMD="${TEST_TMPDIR}/bin/aws-abs-key" \
+    JQ_CMD="${JQ_CMD}" \
+    AWS_MOCK_RM_LOG="${AWS_MOCK_RM_LOG}" \
+    INCLUDE_DIR="${INCLUDE_DIR}" \
+    bash "${repo_root}/src/rotate-aws-backups"
+  [ "$status" -eq 0 ]
+  if [ -f "${AWS_MOCK_RM_LOG}" ]; then
+    run grep -F "/etc/evil" "${AWS_MOCK_RM_LOG}"
+    [ "$status" -ne 0 ]
+  fi
+}
+
+@test "multi-bucket: rotation runs for each bucket in BUCKET_LIST" {
+  # The dispatch loop iterates over every bucket in BUCKET_LIST.
+  # Use the default mocks (a+c deleted, b preserved) and verify that
+  # objects from both buckets appear in the rm log.
+  run env \
+    BUCKET_LIST="bucket-one bucket-two" \
+    DRYRUN=false \
+    ROTATE_BACKUPS_CMD="${TEST_TMPDIR}/bin/rotate-backups" \
+    AWS_CMD="${AWS_CMD}" \
+    JQ_CMD="${JQ_CMD}" \
+    AWS_MOCK_RM_LOG="${AWS_MOCK_RM_LOG}" \
+    INCLUDE_DIR="${INCLUDE_DIR}" \
+    bash "${repo_root}/src/rotate-aws-backups"
+  [ "$status" -eq 0 ]
+  run grep -F "s3://bucket-one/a" "${AWS_MOCK_RM_LOG}"
+  [ "$status" -eq 0 ]
+  run grep -F "s3://bucket-two/a" "${AWS_MOCK_RM_LOG}"
+  [ "$status" -eq 0 ]
+}
+
+@test "DELETE_IGNORED=true with DRYRUN=true: no deletion" {
+  # When DRYRUN=true, ignored objects must be logged but not deleted even
+  # when DELETE_IGNORED=true.
+  cat > "${TEST_TMPDIR}/bin/rotate-backups-ignore" << 'EOF'
+#!/usr/bin/env bash
+dir="${*: -1}"
+dir="${dir:-/tmp}"
+echo "Ignoring ${dir}/a .."
+EOF
+  chmod +x "${TEST_TMPDIR}/bin/rotate-backups-ignore"
+
+  run env \
+    BUCKET=test-bucket \
+    BUCKET_LIST=test-bucket \
+    DRYRUN=true \
+    DELETE_IGNORED=true \
+    ROTATE_BACKUPS_CMD="${TEST_TMPDIR}/bin/rotate-backups-ignore" \
+    AWS_CMD="${AWS_CMD}" \
+    JQ_CMD="${JQ_CMD}" \
+    AWS_MOCK_RM_LOG="${AWS_MOCK_RM_LOG}" \
+    INCLUDE_DIR="${INCLUDE_DIR}" \
+    bash "${repo_root}/src/rotate-aws-backups"
+  [ "$status" -eq 0 ]
+  # rm log must be absent or empty — DRYRUN suppresses all deletions
+  if [ -f "${AWS_MOCK_RM_LOG}" ]; then
+    run wc -l < "${AWS_MOCK_RM_LOG}"
+    [ "$output" -eq 0 ]
+  fi
+}
+
+@test "backup set: grouping works for keys in subdirectories" {
+  # Keys under a two-level prefix exercise the '/' → '__' substitution used
+  # when encoding the group key as a filesystem-safe filename.
+  cat > "${TEST_TMPDIR}/bin/aws-subdir" << 'EOF'
+#!/usr/bin/env bash
+set -o errexit -o nounset -o pipefail
+cmd="$1"; shift || true
+if [[ "$cmd" = "s3api" && "$1" = "list-objects-v2" ]]; then
+    cat <<'JSON'
+{
+  "Contents": [
+    { "Key": "mokerlink/daily/20260101T000000-config.tar.gz" },
+    { "Key": "mokerlink/daily/20260101T000000-config.tar.sha1" }
+  ]
+}
+JSON
+    exit 0
+fi
+if [[ "$cmd" = "s3" && "$1" = "rm" ]]; then
+    shift
+    echo "$*" >> "${AWS_MOCK_RM_LOG:-/tmp/rm.log}"
+    exit 0
+fi
+echo "aws mock: unsupported: $cmd $*" >&2; exit 2
+EOF
+  chmod +x "${TEST_TMPDIR}/bin/aws-subdir"
+
+  cat > "${TEST_TMPDIR}/bin/rotate-backups-subdir" << 'EOF'
+#!/usr/bin/env bash
+dir="${*: -1}"
+dir="${dir:-/tmp}"
+echo "Deleting ${dir}/mokerlink/daily/20260101T000000-config.tar.gz .."
+EOF
+  chmod +x "${TEST_TMPDIR}/bin/rotate-backups-subdir"
+
+  run env \
+    BUCKET=test-bucket \
+    BUCKET_LIST=test-bucket \
+    DRYRUN=false \
+    ROTATE_BACKUPS_CMD="${TEST_TMPDIR}/bin/rotate-backups-subdir" \
+    AWS_CMD="${TEST_TMPDIR}/bin/aws-subdir" \
+    JQ_CMD="${JQ_CMD}" \
+    AWS_MOCK_RM_LOG="${AWS_MOCK_RM_LOG}" \
+    INCLUDE_DIR="${INCLUDE_DIR}" \
+    bash "${repo_root}/src/rotate-aws-backups"
+  [ "$status" -eq 0 ]
+  # Both files in the subdirectory backup set must be deleted together.
+  run grep -F "s3://test-bucket/mokerlink/daily/20260101T000000-config.tar.gz" "${AWS_MOCK_RM_LOG}"
+  [ "$status" -eq 0 ]
+  run grep -F "s3://test-bucket/mokerlink/daily/20260101T000000-config.tar.sha1" "${AWS_MOCK_RM_LOG}"
+  [ "$status" -eq 0 ]
+}
+
+@test "empty bucket: rotation completes successfully" {
+  # A bucket with no objects should produce zero deletions and exit 0.
+  cat > "${TEST_TMPDIR}/bin/aws-empty" << 'EOF'
+#!/usr/bin/env bash
+set -o errexit -o nounset -o pipefail
+cmd="$1"; shift || true
+if [[ "$cmd" = "s3api" && "$1" = "list-objects-v2" ]]; then
+    echo '{ "Contents": [] }'
+    exit 0
+fi
+echo "aws mock: unsupported: $cmd $*" >&2; exit 2
+EOF
+  chmod +x "${TEST_TMPDIR}/bin/aws-empty"
+
+  cat > "${TEST_TMPDIR}/bin/rotate-backups-empty" << 'EOF'
+#!/usr/bin/env bash
+exit 0
+EOF
+  chmod +x "${TEST_TMPDIR}/bin/rotate-backups-empty"
+
+  run env \
+    BUCKET=test-bucket \
+    BUCKET_LIST=test-bucket \
+    DRYRUN=false \
+    ROTATE_BACKUPS_CMD="${TEST_TMPDIR}/bin/rotate-backups-empty" \
+    AWS_CMD="${TEST_TMPDIR}/bin/aws-empty" \
+    JQ_CMD="${JQ_CMD}" \
+    AWS_MOCK_RM_LOG="${AWS_MOCK_RM_LOG}" \
+    INCLUDE_DIR="${INCLUDE_DIR}" \
+    bash "${repo_root}/src/rotate-aws-backups"
+  [ "$status" -eq 0 ]
+  # No deletions should have been made.
+  if [ -f "${AWS_MOCK_RM_LOG}" ]; then
+    run wc -l < "${AWS_MOCK_RM_LOG}"
+    [ "$output" -eq 0 ]
   fi
 }

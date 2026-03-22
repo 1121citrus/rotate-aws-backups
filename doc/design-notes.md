@@ -73,7 +73,8 @@ purely syntactic extension-stripping heuristic is fragile because S3 key
 naming conventions vary across backup producers.
 
 Timestamp-based grouping avoids this entirely: the timestamp is the canonical
-identifier of a backup event regardless of how many dots follow it.
+identifier of a backup event regardless of how many dots appear after it in the
+key name.
 
 #### Require backup producers to bundle all assets into one file
 

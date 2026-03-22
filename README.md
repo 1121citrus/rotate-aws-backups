@@ -65,8 +65,6 @@ Quoting [`rotate-backups`](https://pypi.org/project/rotate-backups/):
 **Dry-run is enabled by default** (`DRYRUN=true`). No objects are deleted
 until `DRYRUN=false` is explicitly set (or `--no-dryrun` is passed).
 
-> **FIXME** — since any storage backend with `ls` and `rm` operations will suffice, abstract to support other backends easily.
-
 ## Usage
 
 ```sh
@@ -261,9 +259,12 @@ See [Options](#options) for the flag names.
 | `YEARLY` | `always` | integer or `always` | Number of yearly backups to preserve. |
 | `YES` | `false` | `true`, `false` | When `true`, skips the interactive confirmation prompt that fires in CLI mode when `DRYRUN=false` and stdin is a tty. Equivalent to `--yes`. |
 
-AWS credentials are passed through the `aws-config` Docker Compose
-[secret](https://docs.docker.com/compose/how-tos/use-secrets/). The file
-format is the standard AWS CLI configuration/credentials file.
+AWS credentials are supplied via the `aws-config` file pointed to by
+`AWS_CONFIG_FILE`. In Docker Compose deployments this is typically mounted as
+a [secret](https://docs.docker.com/compose/how-tos/use-secrets/) or a
+[bind mount](https://docs.docker.com/engine/storage/bind-mounts/). The file
+format is the standard
+[AWS CLI configuration/credentials file](https://docs.aws.amazon.com/cli/latest/userguide/cli-configure-files.html).
 
 ## Building
 
@@ -273,8 +274,9 @@ format is the standard AWS CLI configuration/credentials file.
 ./build
 ```
 
-The `build` script runs lint (hadolint), builds the image locally, runs bats
-tests, and scans with Trivy. See `./build --help` for all flags.
+The `build` script runs linting (hadolint, shellcheck, markdownlint), builds
+the image locally, runs bats tests, and scans with Trivy.
+See `./build --help` for all flags.
 
 To pin the `rotate-backups` Python package version:
 
@@ -284,31 +286,7 @@ ROTATE_BACKUPS_VERSION=7.1 ./build
 
 ### Production build (CI/CD)
 
-Automated by `.github/workflows/build-and-push-docker-image.yaml` on every push to `main`:
-
-1. **Semver tagging** — bumps the patch version automatically; include
-   `bump: minor` or `bump: major` in the commit message to bump those
-   components instead.
-2. **Multi-platform build** — `linux/amd64` and `linux/arm64`, with SBOM and max-mode provenance attestations.
-3. **Pushed to Docker Hub** with `:{version}` and `:latest` tags.
-4. **Trivy scan** — fails the workflow on unfixed vulnerabilities.
-
-Manual build command:
-
-```sh
-docker buildx build \
-  --sbom=true \
-  --provenance=true \
-  --provenance=mode=max \
-  --platform linux/amd64,linux/arm64 \
-  --tag 1121citrus/rotate-aws-backups:latest \
-  --tag 1121citrus/rotate-aws-backups:MAJOR.MINOR.PATCH \
-  --build-arg VERSION=MAJOR.MINOR.PATCH \
-  --push \
-  .
-```
-
-Follow [semantic versioning](https://semver.org) conventions.
+See [`.github/CI-WORKFLOWS.md`](.github/CI-WORKFLOWS.md) for the full CI/CD pipeline documentation.
 
 ## Attributions and provenance
 

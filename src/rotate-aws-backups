@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 
-# Yet another version of `rotate-backups` but this time applied to an AWS S3 backup archive bucket.
+# rotate-aws-backups — rotate objects in AWS S3 backup buckets using the rotate-backups retention policy engine.
 # Copyright (C) 2025 James Hanlon [mailto:jim@hanlonsoftware.com]
 #
 # This program is free software: you can redistribute it and/or modify
@@ -23,7 +23,8 @@
 #   Rotate objects in one or more AWS S3 buckets using the rotate-backups
 #   retention policy engine.
 #
-#   Scheduler mode is triggered by any of: --cron, --cron-expression, or the
+#   Scheduler mode is triggered by any of: --cron, --cron-expression,
+#   --hourly, --daily, --weekly, --monthly, --yearly, or the
 #   CRON_EXPRESSION environment variable. In scheduler mode a crontab entry is
 #   installed and crond is exec'd; output and exit status are those of crond.
 #   The crond-spawned jobs run in CLI mode (no scheduling trigger).
@@ -105,13 +106,13 @@
 #   ENV                      Env-file path (default: ~/.env)
 #   GROUP_BY_TIMESTAMP       Group objects sharing a timestamp as one backup
 #                            set; rotate all members together (default: true)
-#   YES                      Skip confirmation prompt (default: false)
 #   HOURLY                   Hourly backups to keep (default: 24)
 #   MONTHLY                  Monthly backups to keep (default: 6)
 #   ROTATE_BACKUPS_EXTRA_ARGS  Additional rotate-backups arguments
 #   TIMESTAMP_PATTERN        Regex for extracting timestamps from filenames
 #   WEEKLY                   Weekly backups to keep (default: 4)
 #   YEARLY                   Yearly backups to keep (default: always)
+#   YES                      Skip confirmation prompt (default: false)
 
 if command -v readlink >/dev/null 2>&1 && readlink -f "$(dirname "${0}")" >/dev/null 2>&1; then
     bindir=$(readlink -f "$(dirname "${0}")")
@@ -222,6 +223,7 @@ function rotate-aws-backups() {
             # Keys with no recognisable timestamp, and all keys when
             # GROUP_BY_TIMESTAMP=false, each get their own WORKDIR file
             # (the pre-grouping per-file behaviour).
+            # Match YYYYMMDDThhmmss (case-insensitive T separator).
             if [[ "${GROUP_BY_TIMESTAMP}" = 'true' ]] \
                 && [[ "${key}" =~ [0-9]{8}[Tt][0-9]{6} ]]; then
                 _ts="${BASH_REMATCH[0]}"
@@ -259,6 +261,12 @@ function rotate-aws-backups() {
         LOGFILE="${WORKDIR}/rotate-backups.log"
         touch "${LOGFILE}" || true
     fi
+    # Run rotate-backups and parse its output.  rotate-backups emits one line
+    # per evaluated entry containing a verb ("Deleting", "Preserving", or
+    # "Ignoring") followed by the full file path.  The sed stage normalises
+    # verb capitalisation to lowercase tokens ("delete", "preserve", "ignore")
+    # so the case statement below is insensitive to rotate-backups version
+    # differences in output capitalisation.
     # shellcheck disable=SC2086
     ${ROTATE_BACKUPS_CMD} \
                --hourly="${HOURLY}" \
@@ -286,6 +294,7 @@ function rotate-aws-backups() {
         # (directory, timestamp) pair.  Otherwise the representative is the
         # only member (singleton / pre-grouping behaviour).
         local _members=()
+        # Match YYYYMMDDThhmmss (case-insensitive T separator).
         if [[ "${GROUP_BY_TIMESTAMP}" = 'true' ]] \
             && [[ "${rep_key}" =~ [0-9]{8}[Tt][0-9]{6} ]]; then
             local _ts="${BASH_REMATCH[0]}"

@@ -56,13 +56,25 @@ the image) with mocked external commands.
 | `--version exits 0` | `-v`/`--version` exits 0 |
 | `-v exits 0` | Short form of the above |
 | `--cron without bucket exits non-zero` | Scheduler mode validates `BUCKET`/`BUCKET_LIST` before entering crond |
+| `CLI mode without bucket exits non-zero` | CLI mode (no scheduling flag) also validates `BUCKET`/`BUCKET_LIST` before proceeding |
+| `unknown option exits non-zero` | An unrecognised flag causes a non-zero exit via the arg-parser error arm |
+| `CRON_EXPRESSION env var implies scheduler mode` | Setting `CRON_EXPRESSION` in the environment triggers scheduler mode without `--cron` |
 | `rotation calls aws rm for deleted objects (pagination)` | Objects from page 1 (`a`) and page 2 (`c`) are both deleted |
 | `dryrun mode does not invoke aws rm` | `DRYRUN=true` produces no entries in the rm log |
 | `DELETE_IGNORED=true deletes objects ignored by rotate-backups` | `Ignoring` objects are removed when `DELETE_IGNORED=true` |
 | `DELETE_IGNORED=false does not delete objects ignored by rotate-backups` | `Ignoring` objects are kept when `DELETE_IGNORED=false` |
 | `--help mentions --yes` | `--help` output documents the `--yes`/`-y` flag |
 | `YES=true with DRYRUN=false bypasses confirmation and runs live` | `YES=true` suppresses the confirmation gate; live deletion proceeds normally |
-| `path traversal keys are skipped and do not escape WORKDIR` | Keys like `../../etc/evil` are rejected before any `aws s3 rm` call |
+| `backup set: all files with the same timestamp are deleted together` | Both files in a multi-file backup set are deleted when the representative is marked for deletion |
+| `backup set: preserving representative preserves all group members` | No `aws s3 rm` calls are made when the representative is preserved |
+| `--help mentions --no-group` | `--help` output documents the `--no-group` flag |
+| `--no-group: files with same timestamp are rotated independently` | With `GROUP_BY_TIMESTAMP=false`, only the representative file is deleted; its partner is unaffected |
+| `path traversal keys are skipped and do not escape WORKDIR` | Keys containing `..` path components are rejected before any `aws s3 rm` call |
+| `path traversal: absolute key is skipped` | Keys beginning with `/` are rejected by the path-traversal guard |
+| `multi-bucket: rotation runs for each bucket in BUCKET_LIST` | Every bucket in a space-separated `BUCKET_LIST` is rotated in the same run |
+| `DELETE_IGNORED=true with DRYRUN=true: no deletion` | `DRYRUN=true` suppresses deletion even when `DELETE_IGNORED=true`; only logging occurs |
+| `backup set: grouping works for keys in subdirectories` | Multi-level key prefixes (`a/b/timestamp-file`) are grouped correctly; `/` in the prefix is encoded as `__` in the group key |
+| `empty bucket: rotation completes successfully` | A bucket with no objects produces zero deletions and exits 0 |
 
 ## Mock behaviour
 
@@ -78,7 +90,8 @@ Simulates a two-page S3 bucket:
 
 Handles the two filter expressions used by `rotate-aws-backups`:
 
-- `.Contents[]?.Key` — extracts all key strings from the JSON page
+- `.Contents[]?.Key` — extracts all key strings from the JSON page; returns
+  no output (exit 0) for an empty or absent `Contents` array, matching real jq
 - `.NextContinuationToken // empty` — extracts the pagination token, or
   produces no output when absent
 
@@ -158,7 +171,7 @@ test/staging --help
 | `test_staging_cron_no_bucket` | No | `--cron` without a bucket exits non-zero |
 | `test_staging_cli_dryrun` | Yes | One dry-run rotation pass completes successfully |
 | `test_staging_cron_fires` | Yes | Scheduler container fires a full rotation within 4 minutes |
-| `test_staging_rotation_e2e` | Yes² | Creates a transient bucket, populates it with 10 objects, rotates live, verifies exactly 3 remain |
+| `test_staging_rotation_e2e` | Yes² | Creates a transient bucket, uploads 20 objects (10 events × 2 files each), rotates live, verifies exactly 6 remain (3 recent events × 2 files each) |
 | `test_staging_trivy_scan` | No | Trivy finds no unfixed HIGH/CRITICAL CVEs (gating) |
 | `test_staging_grype_advise` | No | Grype advisory scan completes; findings are printed but never block the run |
 

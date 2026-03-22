@@ -13,8 +13,9 @@ filter="$1"
 input=$(cat)
 
 if [[ "$filter" = ".Contents[]?.Key" ]]; then
-  # output all Key values
-  echo "$input" | grep -o '"Key" *: *"[^"]*"' | sed -E 's/"Key" *: *"([^"]*)"/\1/'
+  # output all Key values; guard with || true so an empty Contents array
+  # (no "Key" entries) does not cause grep to exit non-zero under pipefail
+  echo "$input" | grep -o '"Key" *: *"[^"]*"' | sed -E 's/"Key" *: *"([^"]*)"/\1/' || true
   exit 0
 fi
 
