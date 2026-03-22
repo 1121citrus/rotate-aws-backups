@@ -380,15 +380,17 @@ test_staging_cron_fires() {
 # test_staging_rotation_e2e: the only test that validates rotation correctness.
 #
 # Creates a disposable bucket named test.staging.backups.rotate-aws-backups-<epoch>, populates
-# it with 10 synthetic objects whose keys carry recognisable timestamps, runs a
-# live rotation (DRYRUN=false), then asserts the correct objects survived.
+# it with 20 synthetic objects — two files per backup event (a .tar.gz and a
+# .tar.sha1) — to verify that grouped backup sets are deleted and preserved as
+# atomic units.
 #
-# Object layout:
-#   - 3 recent objects: days 1, 2, 3 ago   (inside the 7-day daily window)
-#   - 7 old objects:    days 60–66 ago      (outside all retention windows)
+# Object layout (10 backup events × 2 files each = 20 objects total):
+#   - 3 recent events: days 1, 2, 3 ago   (inside the 7-day daily window)
+#   - 7 old events:    days 60–66 ago      (outside all retention windows)
 #
 # Retention policy applied: DAILY=7, all other periods=0.
-# Expected outcome: exactly 3 objects remain; the 7 old objects are deleted.
+# Expected outcome: exactly 6 objects remain (3 events × 2 files each);
+#   all 14 old objects are deleted in matched pairs.
 #
 # The bucket is always removed in a RETURN trap, even on failure.
 # This test always runs DRYRUN=false on its own transient bucket; the caller's
@@ -420,21 +422,27 @@ test_staging_rotation_e2e() {
     }
 
     # ── Populate ──────────────────────────────────────────────────────────────
-    # 3 recent objects (days 1–3 ago) fall inside rotate-backups' 7-day daily
-    # window.  7 old objects (days 60–66 ago) are well outside all retention
+    # Two files per backup event (.tar.gz + .tar.sha1) exercise the grouped
+    # backup-set behaviour: rotation must delete or preserve both files of each
+    # event together, never orphaning one.
+    #
+    # 3 recent events (days 1–3 ago) fall inside rotate-backups' 7-day daily
+    # window.  7 old events (days 60–66 ago) are well outside all retention
     # windows when WEEKLY=0, MONTHLY=0, YEARLY=0.
     # Timestamps at noon UTC avoid DST edge cases near midnight.
-    printf '  uploading 10 synthetic backup objects...\n' >&2
-    local i ts
+    printf '  uploading 20 synthetic backup objects (2 per event)...\n' >&2
+    local i ts ext
     for i in 1 2 3 60 61 62 63 64 65 66; do
         ts=$(_days_ago_ts "${i}")
-        _aws s3api put-object \
-            --bucket "${test_bucket}" \
-            --key "backup-${ts}.tar.gz" \
-            > /dev/null 2>&1 || {
-            echo "FAIL '${FUNCNAME[0]}': could not upload backup-${ts}.tar.gz"
-            return 1
-        }
+        for ext in tar.gz tar.sha1; do
+            _aws s3api put-object \
+                --bucket "${test_bucket}" \
+                --key "backup-${ts}.${ext}" \
+                > /dev/null 2>&1 || {
+                echo "FAIL '${FUNCNAME[0]}': could not upload backup-${ts}.${ext}"
+                return 1
+            }
+        done
     done
 
     # ── Rotate ────────────────────────────────────────────────────────────────
@@ -463,15 +471,17 @@ test_staging_rotation_e2e() {
     fi
 
     # ── Verify ────────────────────────────────────────────────────────────────
-    # The 3 recent objects must remain; all 7 old objects must be gone.
+    # The 3 recent events (6 objects) must remain; all 7 old events (14 objects)
+    # must be gone.  A count of anything other than 6 indicates either a missed
+    # deletion or a split backup set (one file deleted without its partner).
     local remaining=0
     remaining=$(_aws s3 ls "s3://${test_bucket}/" 2>/dev/null | wc -l | tr -d ' ')
 
-    if [[ "${remaining}" -eq 3 ]]; then
-        echo "PASS '${FUNCNAME[0]}': ${remaining}/10 objects remain" \
-             "(7 old objects correctly deleted)"
+    if [[ "${remaining}" -eq 6 ]]; then
+        echo "PASS '${FUNCNAME[0]}': ${remaining}/20 objects remain" \
+             "(14 old objects correctly deleted in matched pairs)"
     else
-        echo "FAIL '${FUNCNAME[0]}': ${remaining}/10 objects remain (expected 3)"
+        echo "FAIL '${FUNCNAME[0]}': ${remaining}/20 objects remain (expected 6)"
         printf 'Remaining objects:\n' >&2
         _aws s3 ls "s3://${test_bucket}/" >&2 2>&1 || true
         printf 'Rotation output (last 10 lines):\n' >&2

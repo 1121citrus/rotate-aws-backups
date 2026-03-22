@@ -49,13 +49,18 @@ Quoting [`rotate-backups`](https://pypi.org/project/rotate-backups/):
 
 ## Method
 
-1. Create a directory (`WORKDIR`) that serves as a mirror of the bucket.
-2. For each object in the bucket, create an empty file in `WORKDIR` with the
-   same name. AWS S3's `list-objects-v2` pagination is handled transparently,
-   so buckets with more than 1 000 objects are processed correctly.
+1. Create a temporary directory (`WORKDIR`) that serves as a mirror of the bucket.
+2. List all objects in the bucket (handling S3 `list-objects-v2` pagination
+   transparently, so buckets with more than 1 000 objects are processed correctly).
+   Objects that share the same S3 directory prefix **and** timestamp are treated
+   as a single backup set: only one representative file is created in `WORKDIR`
+   per set, and all member keys are recorded for the next step.
+   Objects with no recognisable timestamp each become their own singleton entry.
 3. Run [`rotate-backups`](https://pypi.org/project/rotate-backups/) on `WORKDIR`.
-4. For every object that `rotate-backups` marks for deletion, issue the
-   corresponding `aws s3 rm` call against the real bucket.
+4. For every entry that `rotate-backups` marks for deletion, issue `aws s3 rm`
+   calls for **every member** of the corresponding backup set — ensuring that
+   multi-file backups (e.g. a `.tar.bz2.gpg` and its `.sha1` companion) are
+   always deleted or preserved as a unit.
 
 **Dry-run is enabled by default** (`DRYRUN=true`). No objects are deleted
 until `DRYRUN=false` is explicitly set (or `--no-dryrun` is passed).
@@ -108,6 +113,12 @@ rotate-aws-backups [options]
                                    timestamp (env: DELETE_IGNORED;
                                    default: false)
   --no-delete-ignored              Do not delete ignored objects (default)
+  --group                          Group objects by timestamp so that all
+                                   files belonging to one backup event are
+                                   rotated as a unit (default)
+                                   (env: GROUP_BY_TIMESTAMP; default: true)
+  --no-group                       Disable grouping; rotate each S3 object
+                                   independently (pre-grouping behaviour)
 
   AWS configuration:
   --aws-config FILE                AWS config file
@@ -240,6 +251,7 @@ See [Options](#options) for the flag names.
 | `DEBUG` | `false` | `true`, `false` | Enables bash `-x` (xtrace) and `-v` (verbose) modes. |
 | `DELETE_IGNORED` | `false` | `true`, `false` | When `true`, objects that `rotate-backups` ignores (no recognisable timestamp) are also deleted. |
 | `DRYRUN` | `true` | `true`, `false` | **Must be set to `false` to delete any objects.** When `true` the rotation plan is logged but no `aws s3 rm` calls are made. |
+| `GROUP_BY_TIMESTAMP` | `true` | `true`, `false` | When `true` (default), S3 objects that share the same directory prefix and timestamp are treated as one backup set and rotated together. Set to `false` to restore the pre-grouping per-file behaviour (each object rotated independently). See also `--no-group`. |
 | `HOURLY` | `24` | integer or `always` | Number of hourly backups to preserve. |
 | `MONTHLY` | `6` | integer or `always` | Number of monthly backups to preserve. |
 | `ROTATE_BACKUPS_EXTRA_ARGS` | _(none)_ | any string | Additional arguments appended to every `rotate-backups` invocation. |

@@ -75,6 +75,12 @@
 #                                    timestamp (env: DELETE_IGNORED;
 #                                    default: false)
 #   --no-delete-ignored              Do not delete ignored objects (default)
+#   --group                          Group objects by timestamp so that all
+#                                    files belonging to one backup event are
+#                                    rotated as a unit (default)
+#                                    (env: GROUP_BY_TIMESTAMP; default: true)
+#   --no-group                       Disable grouping; rotate each S3 object
+#                                    independently (pre-grouping behaviour)
 #
 #   AWS configuration:
 #   --aws-config FILE                AWS config file
@@ -97,6 +103,8 @@
 #   DELETE_IGNORED           Delete objects with no recognisable timestamp
 #   DRYRUN                   Dry-run mode — no deletions (default: true)
 #   ENV                      Env-file path (default: ~/.env)
+#   GROUP_BY_TIMESTAMP       Group objects sharing a timestamp as one backup
+#                            set; rotate all members together (default: true)
 #   YES                      Skip confirmation prompt (default: false)
 #   HOURLY                   Hourly backups to keep (default: 24)
 #   MONTHLY                  Monthly backups to keep (default: 6)
@@ -135,8 +143,8 @@ VERSION_FILE=/usr/local/share/rotate-aws-backups/version
 # ---------------------------------------------------------------------------
 
 function cleanup() {
-    # Remove the temporary work directory on exit.
-    rm -rf "${WORKDIR:-}" >/dev/null 2>&1 || true
+    # Remove temporary work directories on exit.
+    rm -rf "${WORKDIR:-}" "${METADIR:-}" >/dev/null 2>&1 || true
 }
 
 function confirm_live_run() {
@@ -169,7 +177,17 @@ function rotate-aws-backups() {
     # Arguments:
     #   BUCKET: name of the S3 bucket to rotate
     local bucket=${1:?Need bucket}
-    # Get a listing of the backup bucket and recreate its filename structure
+
+    # Per-bucket group metadata: keys that share the same directory prefix and
+    # timestamp are treated as one backup set.  Only a single representative
+    # file is created in WORKDIR per set; all member S3 keys are recorded in
+    # a group members file so the rotation decision can be applied to every
+    # member.  The members directory lives in METADIR (separate from WORKDIR so
+    # rotate-backups never sees it).
+    local _metadir="${METADIR}/members"
+    mkdir -p "${_metadir}"
+
+    # Get a listing of the backup bucket and recreate its filename structure.
     info "scanning ${bucket}"
     # Use s3api + jq to safely list object keys (preserves whitespace and
     # special chars).  Handle pagination: list-objects-v2 returns up to 1000
@@ -194,10 +212,34 @@ function rotate-aws-backups() {
                 warn "Skipping S3 key with unsafe path component: ${key}"
                 continue
             fi
-            # ensure any path components are created in the workdir
-            dir=$(dirname "${WORKDIR}/${key}")
-            mkdir -p "${dir}"
-            touch "${WORKDIR}/${key}"
+
+            # When GROUP_BY_TIMESTAMP=true (default), keys that share the same
+            # directory prefix and timestamp are treated as one backup set.
+            # Only the first key in each group gets a WORKDIR representative
+            # file; all member keys are recorded so the rotation decision can
+            # later be applied to every member.
+            #
+            # Keys with no recognisable timestamp, and all keys when
+            # GROUP_BY_TIMESTAMP=false, each get their own WORKDIR file
+            # (the pre-grouping per-file behaviour).
+            if [[ "${GROUP_BY_TIMESTAMP}" = 'true' ]] \
+                && [[ "${key}" =~ [0-9]{8}[Tt][0-9]{6} ]]; then
+                _ts="${BASH_REMATCH[0]}"
+                _dir=$(dirname "${key}")
+                _gk="${_dir}::${_ts}"
+                _gk="${_gk//\//__}"
+                _mf="${_metadir}/${_gk}"
+                if [[ ! -f "${_mf}" ]]; then
+                    # First member: create the representative WORKDIR entry.
+                    mkdir -p "$(dirname "${WORKDIR}/${key}")"
+                    touch "${WORKDIR}/${key}"
+                fi
+                printf '%s\n' "${key}" >> "${_mf}"
+            else
+                # Singleton — create WORKDIR file directly.
+                mkdir -p "$(dirname "${WORKDIR}/${key}")"
+                touch "${WORKDIR}/${key}"
+            fi
         done
 
         token=$(echo "${page}" | ${JQ_CMD} -r '.NextContinuationToken // empty')
@@ -234,41 +276,67 @@ function rotate-aws-backups() {
     sed 's/[Pp]reserving/preserve/' | \
     awk '{for(i=1;i<=NF;i++) if($i~/^(delete|preserve|ignore)$/){print $i"\t"$(i+1);break}}' | \
     while IFS=$'\t' read -r action file; do
-        # strip workdir prefix from file (quote the expansion to avoid glob)
+        # Strip workdir prefix to obtain the representative S3 key.
         local _prefix="${WORKDIR}/"
-        file="${file#"${_prefix}"}"
-        # keep relative key (may contain path components)
-        OBJECT="s3://${bucket}/${file}"
-        case "${action}" in
-            delete)
-                      info "delete ${file}"
-                      if is_false "${DRYRUN}"; then
-                          # shellcheck disable=SC2086
-                          ${AWS_CMD} s3 rm ${AWS_EXTRA_ARGS} "${OBJECT}" | info
-                      else
-                          info "DRYRUN s3 rm ${AWS_EXTRA_ARGS} ${OBJECT}"
-                      fi
-                      ;;
-            preserve)
-                      info "preserve ${file}"
-                      ;;
-            ignore)
-                      if [[ "${DELETE_IGNORED}" = 'true' ]]; then
-                          info "delete ignored ${file}"
+        local rep_key="${file#"${_prefix}"}"
+
+        # Expand the representative key to all group members.  When
+        # GROUP_BY_TIMESTAMP=true and the key carries a timestamp, the group
+        # members file lists every S3 key that shares the same
+        # (directory, timestamp) pair.  Otherwise the representative is the
+        # only member (singleton / pre-grouping behaviour).
+        local _members=()
+        if [[ "${GROUP_BY_TIMESTAMP}" = 'true' ]] \
+            && [[ "${rep_key}" =~ [0-9]{8}[Tt][0-9]{6} ]]; then
+            local _ts="${BASH_REMATCH[0]}"
+            local _dir
+            _dir=$(dirname "${rep_key}")
+            local _gk="${_dir}::${_ts}"
+            _gk="${_gk//\//__}"
+            local _mf="${_metadir}/${_gk}"
+            if [[ -f "${_mf}" ]]; then
+                while IFS= read -r _mk; do
+                    _members+=("${_mk}")
+                done < "${_mf}"
+            fi
+        fi
+        [[ ${#_members[@]} -eq 0 ]] && _members=("${rep_key}")
+
+        # Apply the rotation decision to every member of the backup set.
+        local _member
+        for _member in "${_members[@]}"; do
+            local OBJECT="s3://${bucket}/${_member}"
+            case "${action}" in
+                delete)
+                          info "delete ${_member}"
                           if is_false "${DRYRUN}"; then
                               # shellcheck disable=SC2086
                               ${AWS_CMD} s3 rm ${AWS_EXTRA_ARGS} "${OBJECT}" | info
                           else
                               info "DRYRUN s3 rm ${AWS_EXTRA_ARGS} ${OBJECT}"
                           fi
-                      else
-                          info "ignore ${file}"
-                      fi
-                      ;;
-            *)
-                      info "unknown action ${action} for ${file}"
-                      ;;
-        esac
+                          ;;
+                preserve)
+                          info "preserve ${_member}"
+                          ;;
+                ignore)
+                          if [[ "${DELETE_IGNORED}" = 'true' ]]; then
+                              info "delete ignored ${_member}"
+                              if is_false "${DRYRUN}"; then
+                                  # shellcheck disable=SC2086
+                                  ${AWS_CMD} s3 rm ${AWS_EXTRA_ARGS} "${OBJECT}" | info
+                              else
+                                  info "DRYRUN s3 rm ${AWS_EXTRA_ARGS} ${OBJECT}"
+                              fi
+                          else
+                              info "ignore ${_member}"
+                          fi
+                          ;;
+                *)
+                          info "unknown action ${action} for ${_member}"
+                          ;;
+            esac
+        done
     done
 }
 
@@ -310,6 +378,7 @@ function run_scheduler() {
         printf 'export DEBUG=%q\n'                     "${DEBUG}"
         printf 'export DELETE_IGNORED=%q\n'            "${DELETE_IGNORED}"
         printf 'export DRYRUN=%q\n'                    "${DRYRUN}"
+        printf 'export GROUP_BY_TIMESTAMP=%q\n'        "${GROUP_BY_TIMESTAMP}"
         printf 'export HOURLY=%q\n'                    "${HOURLY}"
         printf 'export MONTHLY=%q\n'                   "${MONTHLY}"
         printf 'export ROTATE_BACKUPS_EXTRA_ARGS=%q\n' "${ROTATE_BACKUPS_EXTRA_ARGS}"
@@ -394,6 +463,12 @@ Options:
                                    timestamp (env: DELETE_IGNORED;
                                    default: false)
   --no-delete-ignored              Do not delete ignored objects (default)
+  --group                          Group objects by timestamp so that all
+                                   files belonging to one backup event are
+                                   rotated as a unit (default)
+                                   (env: GROUP_BY_TIMESTAMP; default: true)
+  --no-group                       Disable grouping; rotate each S3 object
+                                   independently (pre-grouping behaviour)
 
   AWS configuration:
   --aws-config FILE                AWS config file
@@ -453,6 +528,7 @@ _cron_expression_from_env=false
 export CRON_EXPRESSION=${CRON_EXPRESSION:=@daily}
 export DELETE_IGNORED=${DELETE_IGNORED:=false}
 export DRYRUN=${DRYRUN:=true}
+export GROUP_BY_TIMESTAMP=${GROUP_BY_TIMESTAMP:=true}
 YES=${YES:=false}
 export ROTATE_BACKUPS_EXTRA_ARGS=${ROTATE_BACKUPS_EXTRA_ARGS:=}
 export TIMESTAMP_PATTERN=${TIMESTAMP_PATTERN:='(?P<year>\d{4})(?P<month>\d{2})(?P<day>\d{2})[Tt](?P<hour>\d{2})(?P<minute>\d{2})(?P<second>\d{2})'}
@@ -520,6 +596,12 @@ while [[ $# -gt 0 ]]; do
             ;;
         --no-delete-ignored)
             DELETE_IGNORED=false
+            ;;
+        --group)
+            GROUP_BY_TIMESTAMP=true
+            ;;
+        --no-group)
+            GROUP_BY_TIMESTAMP=false
             ;;
         --hourly)
             [[ $# -ge 2 ]] || error "option '${1}' requires an argument"
@@ -590,6 +672,7 @@ fi
 confirm_live_run
 
 WORKDIR=$(mktemp -d)
+METADIR=$(mktemp -d)
 trap cleanup EXIT
 
 for bucket in ${BUCKET_LIST:?Need BUCKET_LIST}; do
@@ -598,4 +681,5 @@ for bucket in ${BUCKET_LIST:?Need BUCKET_LIST}; do
     info "completed '${bucket}' bucket rotation"
     cleanup
     WORKDIR=$(mktemp -d)
+    METADIR=$(mktemp -d)
 done

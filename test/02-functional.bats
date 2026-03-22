@@ -189,6 +189,199 @@ EOF
   [ "$status" -eq 0 ]
 }
 
+@test "backup set: all files with the same timestamp are deleted together" {
+  # Two files share timestamp 20260101T000000 — they form one backup set.
+  # A third file has a different timestamp and should be preserved.
+  # When rotate-backups marks the representative of the day-1 set for deletion,
+  # both day-1 files must be deleted; the day-2 file must not be touched.
+  cat > "${TEST_TMPDIR}/bin/aws-grouped" << 'EOF'
+#!/usr/bin/env bash
+set -o errexit -o nounset -o pipefail
+cmd="$1"; shift || true
+if [[ "$cmd" = "s3api" && "$1" = "list-objects-v2" ]]; then
+    cat <<'JSON'
+{
+  "Contents": [
+    { "Key": "20260101T000000-switch.tar.gz" },
+    { "Key": "20260101T000000-switch.tar.sha1" },
+    { "Key": "20260102T000000-switch.tar.gz" }
+  ]
+}
+JSON
+    exit 0
+fi
+if [[ "$cmd" = "s3" && "$1" = "rm" ]]; then
+    shift
+    logfile="${AWS_MOCK_RM_LOG:-/tmp/rm.log}"
+    echo "$*" >> "$logfile"
+    exit 0
+fi
+echo "aws mock: unsupported: $cmd $*" >&2
+exit 2
+EOF
+  chmod +x "${TEST_TMPDIR}/bin/aws-grouped"
+
+  # rotate-backups sees only the representative of each group:
+  #   20260101T000000-switch.tar.gz  → representative of the day-1 set
+  #   20260102T000000-switch.tar.gz  → representative of the day-2 set (preserve)
+  cat > "${TEST_TMPDIR}/bin/rotate-backups-grouped" << 'EOF'
+#!/usr/bin/env bash
+dir="${*: -1}"
+dir="${dir:-/tmp}"
+echo "Deleting ${dir}/20260101T000000-switch.tar.gz .."
+echo "Preserving ${dir}/20260102T000000-switch.tar.gz .."
+EOF
+  chmod +x "${TEST_TMPDIR}/bin/rotate-backups-grouped"
+
+  run env \
+    BUCKET=test-bucket \
+    BUCKET_LIST=test-bucket \
+    DRYRUN=false \
+    ROTATE_BACKUPS_CMD="${TEST_TMPDIR}/bin/rotate-backups-grouped" \
+    AWS_CMD="${TEST_TMPDIR}/bin/aws-grouped" \
+    JQ_CMD="${JQ_CMD}" \
+    AWS_MOCK_RM_LOG="${AWS_MOCK_RM_LOG}" \
+    INCLUDE_DIR="${INCLUDE_DIR}" \
+    bash "${repo_root}/src/rotate-aws-backups"
+  [ "$status" -eq 0 ]
+
+  # Both day-1 files must be deleted.
+  run grep -F "s3://test-bucket/20260101T000000-switch.tar.gz" "${AWS_MOCK_RM_LOG}"
+  [ "$status" -eq 0 ]
+  run grep -F "s3://test-bucket/20260101T000000-switch.tar.sha1" "${AWS_MOCK_RM_LOG}"
+  [ "$status" -eq 0 ]
+
+  # Day-2 file must not be deleted.
+  if [ -f "${AWS_MOCK_RM_LOG}" ]; then
+    run grep -F "s3://test-bucket/20260102T000000-switch.tar.gz" "${AWS_MOCK_RM_LOG}"
+    [ "$status" -ne 0 ]
+  fi
+}
+
+@test "backup set: preserving representative preserves all group members" {
+  # When rotate-backups preserves the representative, no member of the set
+  # should appear in the rm log.
+  cat > "${TEST_TMPDIR}/bin/aws-grouped-preserve" << 'EOF'
+#!/usr/bin/env bash
+set -o errexit -o nounset -o pipefail
+cmd="$1"; shift || true
+if [[ "$cmd" = "s3api" && "$1" = "list-objects-v2" ]]; then
+    cat <<'JSON'
+{
+  "Contents": [
+    { "Key": "20260101T000000-switch.tar.gz" },
+    { "Key": "20260101T000000-switch.tar.sha1" }
+  ]
+}
+JSON
+    exit 0
+fi
+if [[ "$cmd" = "s3" && "$1" = "rm" ]]; then
+    shift
+    logfile="${AWS_MOCK_RM_LOG:-/tmp/rm.log}"
+    echo "$*" >> "$logfile"
+    exit 0
+fi
+echo "aws mock: unsupported: $cmd $*" >&2
+exit 2
+EOF
+  chmod +x "${TEST_TMPDIR}/bin/aws-grouped-preserve"
+
+  cat > "${TEST_TMPDIR}/bin/rotate-backups-preserve-all" << 'EOF'
+#!/usr/bin/env bash
+dir="${*: -1}"
+dir="${dir:-/tmp}"
+echo "Preserving ${dir}/20260101T000000-switch.tar.gz .."
+EOF
+  chmod +x "${TEST_TMPDIR}/bin/rotate-backups-preserve-all"
+
+  run env \
+    BUCKET=test-bucket \
+    BUCKET_LIST=test-bucket \
+    DRYRUN=false \
+    ROTATE_BACKUPS_CMD="${TEST_TMPDIR}/bin/rotate-backups-preserve-all" \
+    AWS_CMD="${TEST_TMPDIR}/bin/aws-grouped-preserve" \
+    JQ_CMD="${JQ_CMD}" \
+    AWS_MOCK_RM_LOG="${AWS_MOCK_RM_LOG}" \
+    INCLUDE_DIR="${INCLUDE_DIR}" \
+    bash "${repo_root}/src/rotate-aws-backups"
+  [ "$status" -eq 0 ]
+
+  # Neither file should have been deleted.
+  if [ -f "${AWS_MOCK_RM_LOG}" ]; then
+    run grep -cF "s3://test-bucket/" "${AWS_MOCK_RM_LOG}"
+    [ "$output" -eq 0 ]
+  fi
+}
+
+@test "--help mentions --no-group" {
+  run bash "${repo_root}/src/rotate-aws-backups" --help
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"--no-group"* ]]
+}
+
+@test "--no-group: files with same timestamp are rotated independently" {
+  # With GROUP_BY_TIMESTAMP=false the two day-1 files are independent objects.
+  # rotate-backups only sees (and marks) the .tar.gz; the .tar.sha1 is a
+  # separate entry and must NOT be deleted by grouping logic.
+  cat > "${TEST_TMPDIR}/bin/aws-grouped" << 'EOF'
+#!/usr/bin/env bash
+set -o errexit -o nounset -o pipefail
+cmd="$1"; shift || true
+if [[ "$cmd" = "s3api" && "$1" = "list-objects-v2" ]]; then
+    cat <<'JSON'
+{
+  "Contents": [
+    { "Key": "20260101T000000-switch.tar.gz" },
+    { "Key": "20260101T000000-switch.tar.sha1" }
+  ]
+}
+JSON
+    exit 0
+fi
+if [[ "$cmd" = "s3" && "$1" = "rm" ]]; then
+    shift
+    logfile="${AWS_MOCK_RM_LOG:-/tmp/rm.log}"
+    echo "$*" >> "$logfile"
+    exit 0
+fi
+echo "aws mock: unsupported: $cmd $*" >&2
+exit 2
+EOF
+  chmod +x "${TEST_TMPDIR}/bin/aws-grouped"
+
+  # rotate-backups sees both files independently; deletes only the .tar.gz.
+  cat > "${TEST_TMPDIR}/bin/rotate-backups-nogroup" << 'EOF'
+#!/usr/bin/env bash
+dir="${*: -1}"
+dir="${dir:-/tmp}"
+echo "Deleting  ${dir}/20260101T000000-switch.tar.gz .."
+echo "Preserving ${dir}/20260101T000000-switch.tar.sha1 .."
+EOF
+  chmod +x "${TEST_TMPDIR}/bin/rotate-backups-nogroup"
+
+  run env \
+    BUCKET=test-bucket \
+    BUCKET_LIST=test-bucket \
+    DRYRUN=false \
+    GROUP_BY_TIMESTAMP=false \
+    ROTATE_BACKUPS_CMD="${TEST_TMPDIR}/bin/rotate-backups-nogroup" \
+    AWS_CMD="${TEST_TMPDIR}/bin/aws-grouped" \
+    JQ_CMD="${JQ_CMD}" \
+    AWS_MOCK_RM_LOG="${AWS_MOCK_RM_LOG}" \
+    INCLUDE_DIR="${INCLUDE_DIR}" \
+    bash "${repo_root}/src/rotate-aws-backups"
+  [ "$status" -eq 0 ]
+
+  # Only the .tar.gz should have been deleted.
+  run grep -F "s3://test-bucket/20260101T000000-switch.tar.gz" "${AWS_MOCK_RM_LOG}"
+  [ "$status" -eq 0 ]
+
+  # The .tar.sha1 must NOT be deleted (rotate-backups preserved it independently).
+  run grep -F "s3://test-bucket/20260101T000000-switch.tar.sha1" "${AWS_MOCK_RM_LOG}"
+  [ "$status" -ne 0 ]
+}
+
 @test "path traversal keys are skipped and do not escape WORKDIR" {
   # Create an aws mock that returns a key with a path-traversal component.
   cat > "${TEST_TMPDIR}/bin/aws-traversal" << 'EOF'
