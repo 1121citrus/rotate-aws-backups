@@ -101,6 +101,9 @@ rotate-aws-backups [options]
   --dryrun                         Enable dry-run; no deletions made
                                    (env: DRYRUN; default: true)
   --no-dryrun                      Disable dry-run; deletions are live
+  -y,--yes                         Skip the interactive confirmation
+                                   prompt when DRYRUN=false and stdin
+                                   is a tty (env: YES; default: false)
   --delete-ignored                 Delete objects with no recognisable
                                    timestamp (env: DELETE_IGNORED;
                                    default: false)
@@ -137,6 +140,10 @@ rotation pass, then exits.
 Without any scheduling trigger, `rotate-aws-backups` runs one rotation pass
 and exits. Output and exit status are those of `rotate-aws-backups` itself.
 Suitable for scripting, externally managed cron jobs, or one-off runs.
+
+When `DRYRUN=false` and stdin is a tty, an interactive confirmation prompt
+is shown before any deletions are made. Pass `--yes` (or set `YES=true`) to
+skip the prompt — useful for scripting or CI where stdin is not a tty.
 
 ```sh
 rotate-aws-backups --bucket my-backups --no-dryrun
@@ -240,6 +247,7 @@ See [Options](#options) for the flag names.
 | `TZ` | `UTC` | IANA timezone name | Timezone used by crond and timestamp comparisons. |
 | `WEEKLY` | `4` | integer or `always` | Number of weekly backups to preserve. |
 | `YEARLY` | `always` | integer or `always` | Number of yearly backups to preserve. |
+| `YES` | `false` | `true`, `false` | When `true`, skips the interactive confirmation prompt that fires in CLI mode when `DRYRUN=false` and stdin is a tty. Equivalent to `--yes`. |
 
 AWS credentials are passed through the `aws-config` Docker Compose
 [secret](https://docs.docker.com/compose/how-tos/use-secrets/). The file

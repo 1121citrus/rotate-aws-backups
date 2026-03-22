@@ -60,6 +60,8 @@ the image) with mocked external commands.
 | `dryrun mode does not invoke aws rm` | `DRYRUN=true` produces no entries in the rm log |
 | `DELETE_IGNORED=true deletes objects ignored by rotate-backups` | `Ignoring` objects are removed when `DELETE_IGNORED=true` |
 | `DELETE_IGNORED=false does not delete objects ignored by rotate-backups` | `Ignoring` objects are kept when `DELETE_IGNORED=false` |
+| `--help mentions --yes` | `--help` output documents the `--yes`/`-y` flag |
+| `YES=true with DRYRUN=false bypasses confirmation and runs live` | `YES=true` suppresses the confirmation gate; live deletion proceeds normally |
 | `path traversal keys are skipped and do not escape WORKDIR` | Keys like `../../etc/evil` are rejected before any `aws s3 rm` call |
 
 ## Mock behaviour

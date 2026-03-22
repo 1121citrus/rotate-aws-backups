@@ -165,6 +165,30 @@ EOF
   fi
 }
 
+@test "--help mentions --yes" {
+  run bash "${repo_root}/src/rotate-aws-backups" --help
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"--yes"* ]]
+}
+
+@test "YES=true with DRYRUN=false bypasses confirmation and runs live" {
+  # confirm_live_run is a no-op when YES=true; rotation must complete normally.
+  run env \
+    BUCKET=test-bucket \
+    BUCKET_LIST=test-bucket \
+    DRYRUN=false \
+    YES=true \
+    ROTATE_BACKUPS_CMD="${TEST_TMPDIR}/bin/rotate-backups" \
+    AWS_CMD="${AWS_CMD}" \
+    JQ_CMD="${JQ_CMD}" \
+    AWS_MOCK_RM_LOG="${AWS_MOCK_RM_LOG}" \
+    INCLUDE_DIR="${INCLUDE_DIR}" \
+    bash "${repo_root}/src/rotate-aws-backups"
+  [ "$status" -eq 0 ]
+  run grep -F "s3://test-bucket/a" "${AWS_MOCK_RM_LOG}"
+  [ "$status" -eq 0 ]
+}
+
 @test "path traversal keys are skipped and do not escape WORKDIR" {
   # Create an aws mock that returns a key with a path-traversal component.
   cat > "${TEST_TMPDIR}/bin/aws-traversal" << 'EOF'

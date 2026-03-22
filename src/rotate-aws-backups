@@ -68,6 +68,9 @@
 #   --dryrun                         Enable dry-run; no deletions made
 #                                    (env: DRYRUN; default: true)
 #   --no-dryrun                      Disable dry-run; deletions are live
+#   -y,--yes                         Skip the interactive confirmation
+#                                    prompt when DRYRUN=false and stdin is
+#                                    a tty (env: YES; default: false)
 #   --delete-ignored                 Delete objects with no recognisable
 #                                    timestamp (env: DELETE_IGNORED;
 #                                    default: false)
@@ -94,6 +97,7 @@
 #   DELETE_IGNORED           Delete objects with no recognisable timestamp
 #   DRYRUN                   Dry-run mode — no deletions (default: true)
 #   ENV                      Env-file path (default: ~/.env)
+#   YES                      Skip confirmation prompt (default: false)
 #   HOURLY                   Hourly backups to keep (default: 24)
 #   MONTHLY                  Monthly backups to keep (default: 6)
 #   ROTATE_BACKUPS_EXTRA_ARGS  Additional rotate-backups arguments
@@ -133,6 +137,29 @@ VERSION_FILE=/usr/local/share/rotate-aws-backups/version
 function cleanup() {
     # Remove the temporary work directory on exit.
     rm -rf "${WORKDIR:-}" >/dev/null 2>&1 || true
+}
+
+function confirm_live_run() {
+    # Interactive confirmation gate for CLI mode with DRYRUN=false.
+    # Skipped automatically when:
+    #   - DRYRUN=true (no deletions will occur)
+    #   - stdin is not a tty (scripted / Docker / CI context)
+    #   - YES=true (--yes flag or env var)
+    is_true "${DRYRUN}" && return 0
+    [[ -t 0 ]] || return 0
+    is_true "${YES}" && return 0
+
+    warn "DRYRUN=false — this run will delete S3 objects"
+    echo "" >&2
+    echo "  Buckets:   ${BUCKET_LIST}" >&2
+    echo "  Retention: hourly=${HOURLY} daily=${DAILY}" \
+         "weekly=${WEEKLY} monthly=${MONTHLY} yearly=${YEARLY}" >&2
+    echo "" >&2
+    printf 'Type "yes" to proceed, or press Enter to abort: ' >&2
+    local response
+    read -r response
+    echo "" >&2
+    [[ "${response}" == "yes" ]] || error "aborted by user"
 }
 
 function rotate-aws-backups() {
@@ -360,6 +387,9 @@ Options:
   --dryrun                         Enable dry-run; no deletions made
                                    (env: DRYRUN; default: true)
   --no-dryrun                      Disable dry-run; deletions are live
+  -y,--yes                         Skip the interactive confirmation
+                                   prompt when DRYRUN=false and stdin
+                                   is a tty (env: YES; default: false)
   --delete-ignored                 Delete objects with no recognisable
                                    timestamp (env: DELETE_IGNORED;
                                    default: false)
@@ -395,7 +425,13 @@ Examples:
 
   # Scheduler mode — custom schedule via env var (implies --cron):
   CRON_EXPRESSION="0 4 * * *" rotate-aws-backups --bucket my-backups
+
 EOF
+    local version
+    version=$(show_version)
+    if [[ "${version}" != "unknown" ]]; then
+        printf '[1121citrus/rotate-aws-backups %s]\n' "${version}" 
+    fi
 }
 
 function show_version() {
@@ -417,6 +453,7 @@ _cron_expression_from_env=false
 export CRON_EXPRESSION=${CRON_EXPRESSION:=@daily}
 export DELETE_IGNORED=${DELETE_IGNORED:=false}
 export DRYRUN=${DRYRUN:=true}
+YES=${YES:=false}
 export ROTATE_BACKUPS_EXTRA_ARGS=${ROTATE_BACKUPS_EXTRA_ARGS:=}
 export TIMESTAMP_PATTERN=${TIMESTAMP_PATTERN:='(?P<year>\d{4})(?P<month>\d{2})(?P<day>\d{2})[Tt](?P<hour>\d{2})(?P<minute>\d{2})(?P<second>\d{2})'}
 
@@ -474,6 +511,9 @@ while [[ $# -gt 0 ]]; do
             ;;
         --no-dryrun)
             DRYRUN=false
+            ;;
+        --yes|-y)
+            YES=true
             ;;
         --delete-ignored)
             DELETE_IGNORED=true
@@ -546,6 +586,8 @@ fi
 # CLI mode: run one rotation pass and exit.
 [[ -n "${BUCKET_LIST}" ]] || \
     error "need to specify either BUCKET or BUCKET_LIST to be rotated"
+
+confirm_live_run
 
 WORKDIR=$(mktemp -d)
 trap cleanup EXIT
