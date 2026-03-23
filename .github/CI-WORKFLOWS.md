@@ -18,7 +18,7 @@ Single unified workflow for all CI/CD stages.
 
 ### Trigger Events
 
-- **Push:** `main`, `staging` branches and `v*` version tags
+- **Push:** `main`, `master`, `staging` branches and `v*` version tags
 - **Pull requests:** To `main` or `master` branches
 
 ### Versioning
@@ -69,8 +69,8 @@ Scans the built image **before** it is pushed to Docker Hub.
 
 - **Tool:** Trivy `aquasecurity/trivy-action@0.35.0` (pinned)
 - **Severity:** CRITICAL, HIGH
-- **Blocking:** `exit-code: 1` — fails and blocks push if fixable CVEs found
-- **Noise reduction:** `ignore-unfixed: true` — suppresses CVEs with no available patch
+- **Blocking:** `exit-code: 1` — **blocks the build and prevents push** if fixable CVEs are found
+- **Noise reduction:** `ignore-unfixed: true` — suppresses CVEs with no available vendor patch (unfixed CVEs are reported but do not block the build)
 - **DB caching:** `~/.cache/trivy` is cached between runs with `actions/cache`; the vulnerability DB is
   only re-downloaded when the cache is cold or the DB has been updated
 - **Download noise:** `TRIVY_NO_PROGRESS=true` suppresses progress bars; `TRIVY_QUIET=true` suppresses
@@ -129,7 +129,11 @@ On push/PR
 - `Dockerfile` — Container build definition
 - `src/rotate-aws-backups` — Main rotation script
 - `src/rotate` — Rotation helper
+- `src/startup` — Container startup script
+- `src/healthcheck` — Container health check script
 - `src/include/common-functions` — Shared shell library
 - `test/01-dockerfile.bats` — Dockerfile content tests
 - `test/02-functional.bats` — Shell script functional tests
+- `test/03-build.bats` — Build artifact validation tests
 - `test/bin/` — Mock binaries (aws, jq, rotate-backups)
+- `test/staging` — Integration test script with real S3 bucket support

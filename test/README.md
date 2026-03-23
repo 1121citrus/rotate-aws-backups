@@ -76,7 +76,13 @@ the image) with mocked external commands.
 | `backup set: grouping works for keys in subdirectories` | Multi-level key prefixes (`a/b/timestamp-file`) are grouped correctly; `/` in the prefix is encoded as `__` in the group key |
 | `empty bucket: rotation completes successfully` | A bucket with no objects produces zero deletions and exits 0 |
 
-## Mock behaviour
+### 03-build.bats
+
+Tests for the `build` script itself. Validates script options, flags, caching,
+advisement scanning (Trivy, Grype), and dry-run mode.
+
+The `build` script orchestrates the build process and handles multiple stages.
+These tests verify correct argument parsing and stage control.
 
 ### test/bin/aws
 
@@ -205,3 +211,16 @@ test/staging --help
 | `ROTATE_BACKUPS_CMD` | individual tests | Path to `test/bin/rotate-backups` (or a per-test mock) |
 | `AWS_MOCK_RM_LOG` | `setup()` | Path where the aws mock records `s3 rm` invocations |
 | `TEST_TMPDIR` | `setup()` | Temporary directory cleaned up in `teardown()` |
+
+## Quick start
+
+```sh
+# Run all tests through the build script (recommended):
+./build --no-lint --no-scan
+
+# Run only functional tests with a local bats installation:
+bats test/02-functional.bats
+
+# Run tests against a real image (read-only dry-run):
+test/staging 1121citrus/rotate-aws-backups:latest
+```

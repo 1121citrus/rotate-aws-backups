@@ -36,10 +36,13 @@
 #                             (env: STAGING_SCAN; default: true)
 #   --no-scan                 Skip Trivy scan; also implies --no-advise unless
 #                             --advise is given explicitly
-#   --advise                  Run Grype full-severity advisory scan (non-gating)
-#                             (env: STAGING_ADVISE; default: true unless
-#                             --no-scan was given without --advise)
-#   --no-advise               Skip Grype advisory scan
+#   --advise [ADVISEMENTS]    Run advisory scans. Optional comma-delimited list:
+#                             'grype', 'scout', 'dive', 'all', or any combination.
+#                             'all' selects every available advisement.
+#                             (default if no list given: 'grype,scout')
+#                             Omitting the option entirely defaults to all advisements.
+#                             (env: STAGING_ADVISE for Grype; default: true)
+#   --no-advise               Skip all advisory scans (Grype, Scout, and Dive)
 #   --yes                     Skip the "yes" confirmation prompt
 #   --skip-e2e                Skip test_staging_rotation_e2e
 #   --test TEST               Run only the named test function
@@ -55,8 +58,9 @@
 #   DRYRUN             true = dry-run for production bucket tests (default)
 #                      false = live deletions (test/staging buckets only)
 #   STAGING_SCAN       true/false — controls Trivy scan (default: true)
-#   STAGING_ADVISE     true/false — controls Grype advisory scan
-#                      (default: true, or false when STAGING_SCAN=false)
+#   STAGING_ADVISE     true/false — controls Grype advisory scan (default: true,
+#                      or false when STAGING_SCAN=false); Scout and Dive default
+#                      to true and false respectively and have no env-var override
 #   DOCKER_RUN_ARGS    Extra flags appended to every docker run invocation
 #
 # EXAMPLES
@@ -67,7 +71,13 @@
 #   test/staging --no-scan 1121citrus/rotate-aws-backups:latest
 #
 #   # Skip Trivy but still run Grype advisory:
-#   test/staging --no-scan --advise 1121citrus/rotate-aws-backups:latest
+#   test/staging --no-scan --advise grype 1121citrus/rotate-aws-backups:latest
+#
+#   # Run only Grype advisory (skip Scout):
+#   test/staging --advise grype 1121citrus/rotate-aws-backups:latest
+#
+#   # Run all three advisements: Grype, Scout, and Dive:
+#   test/staging --advise grype,scout,dive 1121citrus/rotate-aws-backups:latest
 #
 #   # Full test suite against a dedicated test bucket:
 #   test/staging --bucket test.my-backups \
@@ -101,7 +111,9 @@ _YES=false
 _SKIP_E2E=false
 _ONLY_TEST=""
 _SCAN="${STAGING_SCAN:-true}"
-_ADVISE="${STAGING_ADVISE:-true}"
+_ADVISE_GRYPE="${STAGING_ADVISE:-true}"
+_ADVISE_SCOUT=true
+_ADVISE_DIVE=false
 _ADVISE_EXPLICIT=false   # set to true when --advise or --no-advise is passed
 
 # Tool image refs — keep in sync with the top-level build script.
@@ -109,6 +121,8 @@ TRIVY_IMAGE=aquasec/trivy
 TRIVY_TAG=0.62.1
 GRYPE_IMAGE=anchore/grype
 GRYPE_TAG=v0.87.0
+DIVE_IMAGE=wagoodman/dive
+DIVE_TAG=latest
 
 show_help() {
     # Extract the header comment from SYNOPSIS through EXAMPLES (inclusive).
@@ -209,6 +223,16 @@ setup() {
 
     export _aws_cfg
     export -f _aws run_rotate_aws_backups run_service_detached
+
+    # Create a shared image archive for Trivy and Grype — avoids mounting the
+    # Docker socket inside scanner containers, which hangs on macOS Docker Desktop.
+    _scan_tar=""
+    if [[ "${_SCAN}" == "true" || "${_ADVISE_GRYPE}" == "true" ]]; then
+        _scan_tar=$(mktemp /tmp/staging-scan-XXXXXX.tar)
+        trap 'rm -f "${_scan_tar}"' EXIT
+        docker save "${IMAGE}" > "${_scan_tar}"
+    fi
+    export _scan_tar
 }
 
 # _days_ago_ts prints a timestamp N days ago in rotate-backups' default format
@@ -503,15 +527,27 @@ test_staging_trivy_scan() {
         return 0
     }
     printf '  running Trivy scan on %s...\n' "${IMAGE}" >&2
+
+    # Mirror build Stage 4: skip DB update when cache is present to avoid the
+    # OCI-based DB fetch hanging indefinitely on macOS Docker Desktop.
+    local trivy_db_flags=()
+    if [[ -f "${HOME}/.cache/trivy/db/trivy.db" ]]; then
+        trivy_db_flags=(--skip-db-update --skip-java-db-update)
+    fi
+
     local result=0
     docker run --rm \
-        -v /var/run/docker.sock:/var/run/docker.sock:ro \
+        -v "${_scan_tar}:/scan.tar:ro" \
+        -v "${HOME}/.cache/trivy:/root/.cache/trivy" \
         "${TRIVY_IMAGE}:${TRIVY_TAG}" image \
             --quiet \
+            --no-progress \
             --exit-code 1 \
             --ignore-unfixed \
             --severity HIGH,CRITICAL \
-            "${IMAGE}" 2>&1 || result=$?
+            --timeout 5m \
+            "${trivy_db_flags[@]}" \
+            --input /scan.tar 2>&1 || result=$?
     if [[ ${result} -eq 0 ]]; then
         echo "PASS '${FUNCNAME[0]}': no unfixed HIGH/CRITICAL CVEs found"
     else
@@ -522,20 +558,59 @@ test_staging_trivy_scan() {
 }
 
 # test_staging_grype_advise: Grype full-severity advisory scan.
-# Mirrors build Stage 5.  Non-gating: findings are printed but never cause a
+# Mirrors build Stage 5a.  Non-gating: findings are printed but never cause a
 # test failure.  Skipped when --no-advise is set, or when --no-scan is given
 # without an explicit --advise.
 test_staging_grype_advise() {
-    [[ "${_ADVISE}" == "true" ]] || {
-        _skip "--no-advise: Grype advisory scan skipped"
+    [[ "${_ADVISE_GRYPE}" == "true" ]] || {
+        _skip "--no-advise grype: Grype advisory scan skipped"
         return 0
     }
+
+    # Mirror build Stage 5a: skip DB download when cache exists to avoid
+    # mid-body timeout on restricted networks.
+    local grype_cache="${HOME}/.cache/grype"
+    if [[ ! -d "${grype_cache}/db" ]]; then
+        _skip "no Grype DB cache at ${grype_cache}/db (run: docker run --rm -v ~/.cache/grype:/root/.cache/grype ${GRYPE_IMAGE}:${GRYPE_TAG} db update)"
+        return 0
+    fi
+
     printf '  running Grype advisory scan on %s...\n' "${IMAGE}" >&2
     docker run --rm \
-        -v /var/run/docker.sock:/var/run/docker.sock:ro \
+        -v "${_scan_tar}:/scan.tar:ro" \
+        -v "${grype_cache}:/root/.cache/grype" \
+        -e GRYPE_DB_AUTO_UPDATE=false \
         "${GRYPE_IMAGE}:${GRYPE_TAG}" \
-            "${IMAGE}" 2>&1 || true
+            docker-archive:/scan.tar 2>&1 || true
     echo "PASS '${FUNCNAME[0]}': Grype advisory scan complete (advisory only)"
+}
+
+# test_staging_scout_advise: Docker Scout CVE advisory scan.
+# Mirrors build Stage 5b.  Non-gating.
+test_staging_scout_advise() {
+    [[ "${_ADVISE_SCOUT}" == "true" ]] || {
+        _skip "--no-advise scout: Docker Scout advisory scan skipped"
+        return 0
+    }
+    printf '  running Docker Scout advisory scan on %s...\n' "${IMAGE}" >&2
+    docker scout cves "${IMAGE}" 2>&1 || true
+    echo "PASS '${FUNCNAME[0]}': Docker Scout advisory scan complete (advisory only)"
+}
+
+# test_staging_dive_advise: Dive image layer analysis.
+# Mirrors build Stage 5c.  Non-gating.
+test_staging_dive_advise() {
+    [[ "${_ADVISE_DIVE}" == "true" ]] || {
+        _skip "--no-advise dive: Dive layer analysis skipped"
+        return 0
+    }
+    printf '  running Dive layer analysis on %s...\n' "${IMAGE}" >&2
+    docker run --rm \
+        -v /var/run/docker.sock:/var/run/docker.sock:ro \
+        "${DIVE_IMAGE}:${DIVE_TAG}" \
+            --ci \
+            "${IMAGE}" 2>&1 || true
+    echo "PASS '${FUNCNAME[0]}': Dive layer analysis complete (advisory only)"
 }
 
 # ---------------------------------------------------------------------------
@@ -554,6 +629,8 @@ run_tests() {
         test_staging_rotation_e2e
         test_staging_trivy_scan
         test_staging_grype_advise
+        test_staging_scout_advise
+        test_staging_dive_advise
     )
 
     # Apply --test and --skip-e2e filters.
@@ -594,7 +671,7 @@ run_tests() {
     [[ -n "${_ONLY_TEST}" ]]  && echo "Filter: --test ${_ONLY_TEST}"
     "${_SKIP_E2E}"            && echo "Filter: --skip-e2e"
     echo "Scan:   ${_SCAN} (Trivy HIGH/CRITICAL)"
-    echo "Advise: ${_ADVISE} (Grype advisory)"
+    echo "Advise: grype=${_ADVISE_GRYPE} scout=${_ADVISE_SCOUT} dive=${_ADVISE_DIVE}"
     echo "================================================="
 
     _SKIP_COUNT=0
@@ -632,8 +709,35 @@ main() {
             --no-dryrun)    DRYRUN=false ;;
             --scan)         _SCAN=true   ;;
             --no-scan)      _SCAN=false  ;;
-            --advise)       _ADVISE=true;  _ADVISE_EXPLICIT=true ;;
-            --no-advise)    _ADVISE=false; _ADVISE_EXPLICIT=true ;;
+            --advise)
+                _ADVISE_EXPLICIT=true
+                # Accept an optional advisement list only when the next arg
+                # looks like one (grype/scout/dive only — not an image name).
+                if [[ $# -gt 1 && "$2" =~ ^(grype|scout|dive|all)(,(grype|scout|dive|all))*$ ]]; then
+                    advisements="$2"; shift
+                else
+                    advisements="grype,scout"
+                fi
+                _ADVISE_GRYPE=false
+                _ADVISE_SCOUT=false
+                _ADVISE_DIVE=false
+                IFS=',' read -ra adv_list <<< "$advisements"
+                for adv in "${adv_list[@]}"; do
+                    case "$adv" in
+                        grype)  _ADVISE_GRYPE=true ;;
+                        scout)  _ADVISE_SCOUT=true ;;
+                        dive)   _ADVISE_DIVE=true ;;
+                        all)    _ADVISE_GRYPE=true; _ADVISE_SCOUT=true; _ADVISE_DIVE=true ;;
+                        *)      echo "Unknown advisement: $adv" >&2; exit 1 ;;
+                    esac
+                done
+                ;;
+            --no-advise)
+                _ADVISE_GRYPE=false
+                _ADVISE_SCOUT=false
+                _ADVISE_DIVE=false
+                _ADVISE_EXPLICIT=true
+                ;;
             --yes)          _YES=true    ;;
             --skip-e2e)     _SKIP_E2E=true ;;
             --test)         _ONLY_TEST="$2"; shift ;;
@@ -656,12 +760,14 @@ main() {
 
     # --no-scan implies --no-advise unless --advise was given explicitly.
     if [[ "${_SCAN}" == "false" && "${_ADVISE_EXPLICIT}" == "false" ]]; then
-        _ADVISE=false
+        _ADVISE_GRYPE=false
+        _ADVISE_SCOUT=false
+        _ADVISE_DIVE=false
     fi
 
     # Propagate resolved values so setup() and test functions see them.
     export IMAGE BUCKET BUCKET_LIST AWS_CONFIG_FILE DRYRUN
-    export _YES _SKIP_E2E _ONLY_TEST _SCAN _ADVISE
+    export _YES _SKIP_E2E _ONLY_TEST _SCAN _ADVISE_GRYPE _ADVISE_SCOUT _ADVISE_DIVE
 
     # Derive BUCKET_LIST from BUCKET when not set explicitly.
     [[ -z "${BUCKET_LIST}" && -n "${BUCKET}" ]] && BUCKET_LIST="${BUCKET}"
@@ -685,8 +791,16 @@ main() {
     else
         echo "  Scan:     skipped (--no-scan)"
     fi
-    if [[ "${_ADVISE}" == "true" ]]; then
-        echo "  Advise:   Grype advisory (--no-advise to skip)"
+    local _advise_any=false
+    [[ "${_ADVISE_GRYPE}" == "true" || "${_ADVISE_SCOUT}" == "true" \
+        || "${_ADVISE_DIVE}" == "true" ]] && _advise_any=true
+    if "${_advise_any}"; then
+        local _advise_list=()
+        [[ "${_ADVISE_GRYPE}" == "true" ]] && _advise_list+=(grype)
+        [[ "${_ADVISE_SCOUT}" == "true" ]] && _advise_list+=(scout)
+        [[ "${_ADVISE_DIVE}"  == "true" ]] && _advise_list+=(dive)
+        local IFS=,
+        echo "  Advise:   ${_advise_list[*]} (--no-advise to skip)"
     elif [[ "${_SCAN}" == "false" && "${_ADVISE_EXPLICIT}" == "false" ]]; then
         echo "  Advise:   skipped (implied by --no-scan; use --advise to enable)"
     else

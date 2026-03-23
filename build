@@ -8,7 +8,9 @@
 # SYNOPSIS
 #   build [--push] [--version VERSION] [--platform PLATFORMS]
 #         [--registry REGISTRY] [--no-sbom] [--no-provenance]
-#         [--no-lint] [--no-test] [--no-scan] [--advise] [--no-advise]
+#         [--no-lint] [--no-test] [--no-scan]
+#         [--advise [ADVISEMENTS]] [--advice [ADVISEMENTS]] [--no-advise]
+#         [--cache CACHE_RULES]
 #         [--dry-run] [--help]
 #
 # OPTIONS
@@ -28,10 +30,24 @@
 #   --no-lint           Skip hadolint Dockerfile check.
 #   --no-test           Skip running the bats test suite.
 #   --no-scan           Skip the Trivy vulnerability scan (gating).
-#                       Also skips Grype (stage 5) by default; pass --advise
-#                       after --no-scan to keep the advisory scan.
-#   --advise            Run the Grype advisory scan even when --no-scan is set.
-#   --no-advise         Skip the Grype advisory scan (non-gating).
+#                       Also skips advisements (stage 5) by default; pass --advise
+#                       after --no-scan to keep the advisory scans.
+#   --advise [ADVISEMENTS]
+#                       Run advisory scans. Optional comma-delimited list of advisements:
+#                       'grype', 'scout', 'dive', 'all', or any combination, e.g. 'grype,dive'
+#                       'all' selects every available advisement.
+#                       (default if no list given: 'grype,scout').
+#                       Omitting the option entirely defaults to all advisements.
+#   --advice [ADVISEMENTS]
+#                       Compatibility alias for --advise.
+#   --no-advise         Skip all advisory scans (Grype, Docker Scout, and Dive).
+#   --cache CACHE_RULES One-run cache controls for scanner DBs.
+#                       Rule format: 'reset=<targets>;skip-update=<targets>'
+#                       Targets: trivy, grype, all (comma-delimited)
+#                       Examples:
+#                         --cache 'reset=all'
+#                         --cache 'skip-update=grype'
+#                         --cache 'reset=grype;skip-update=trivy'
 #   --dry-run           Print each command without executing it.
 #   --help              Print this message and exit.
 #
@@ -55,21 +71,44 @@
 #   2. Build  — single-platform --load into local Docker daemon
 #   3. Test   — bats test suite (runs in bats/bats:latest Docker container)
 #   4. Scan   — Trivy CRITICAL/HIGH image scan (blocking; exit 1 on findings)
-#   5. Advise — Grype full-severity scan (advisory only; never blocks the build)
+#   5. Advise — multiple advisory scans (advisory only; never blocks the build)
+#              a) Grype   — full-severity scan
+#              b) Scout   — Docker Scout CVE scan
+#              c) Dive    — image layer analysis
 #   6. Push   — multi-platform rebuild + push to registry (only with --push)
 #
 # EXAMPLES
-#   # Local dev cycle — lint, build, test, scan
+#   # Local dev cycle — lint, build, test, scan, advise
 #   ./build
 #
 #   # Release build — push version 1.2.3 and latest
 #   ./build --push --version 1.2.3
+#
+#   # Run only Grype advisory (skip Docker Scout)
+#   ./build --advise grype
+#
+#   # Run only Docker Scout (skip Grype)
+#   ./build --advise scout
+#
+#   # Run all three advisements: Grype, Scout, and Dive
+#   ./build --advise grype,scout,dive
+#
+#   # Compatibility alias
+#   ./build --advice all
+#
+#   # Run Dive analysis only
+#   ./build --advise dive
+#
+#   # Reset scanner DB caches for this run, then skip Grype DB update once
+#   ./build --cache 'reset=all;skip-update=grype'
 #
 #   # Pin the rotate-backups version
 #   ROTATE_BACKUPS_VERSION=7.1 ./build
 #
 #   # Dry-run: just print each command
 #   ./build --dry-run
+#
+# HELP_ENDS_HERE
 
 set -euo pipefail
 
@@ -85,8 +124,14 @@ PROVENANCE=true
 LINT=${BUILD_LINT:-true}
 TEST=${BUILD_TEST:-true}
 SCAN=${BUILD_SCAN:-true}
-ADVISE=${BUILD_ADVISE:-true}
+ADVISE_GRYPE=true
+ADVISE_SCOUT=true
+ADVISE_DIVE=false
 _ADVISE_EXPLICIT=false   # set true when --advise or --no-advise is passed
+CACHE_RESET_TRIVY=false
+CACHE_RESET_GRYPE=false
+CACHE_SKIP_UPDATE_TRIVY=false
+CACHE_SKIP_UPDATE_GRYPE=false
 DRY_RUN=false
 
 IMAGE_NAME=rotate-aws-backups
@@ -102,6 +147,138 @@ TRIVY_IMAGE=aquasec/trivy
 TRIVY_TAG=0.62.1
 GRYPE_IMAGE=anchore/grype
 GRYPE_TAG=v0.87.0
+DIVE_IMAGE=wagoodman/dive
+DIVE_TAG=latest
+
+TRIVY_CACHE_VOLUME=rotate-aws-backups-trivy-cache
+GRYPE_CACHE_VOLUME=rotate-aws-backups-grype-cache
+GRYPE_DB_CACHE_DIR=/grype-db
+
+# ---------------------------------------------------------------------------
+# Helpers: cache control parsing
+# ---------------------------------------------------------------------------
+set_cache_targets() {
+    local mode="$1"
+    local targets_csv="$2"
+    local target
+    IFS=',' read -ra _cache_targets <<< "${targets_csv}"
+
+    for target in "${_cache_targets[@]}"; do
+        case "${target}" in
+            trivy)
+                if [[ "${mode}" == "reset" ]]; then
+                    CACHE_RESET_TRIVY=true
+                elif [[ "${mode}" == "skip-update" ]]; then
+                    CACHE_SKIP_UPDATE_TRIVY=true
+                fi
+                ;;
+            grype)
+                if [[ "${mode}" == "reset" ]]; then
+                    CACHE_RESET_GRYPE=true
+                elif [[ "${mode}" == "skip-update" ]]; then
+                    CACHE_SKIP_UPDATE_GRYPE=true
+                fi
+                ;;
+            all)
+                if [[ "${mode}" == "reset" ]]; then
+                    CACHE_RESET_TRIVY=true
+                    CACHE_RESET_GRYPE=true
+                elif [[ "${mode}" == "skip-update" ]]; then
+                    CACHE_SKIP_UPDATE_TRIVY=true
+                    CACHE_SKIP_UPDATE_GRYPE=true
+                fi
+                ;;
+            *)
+                echo "Unknown cache target: ${target}" >&2
+                exit 1
+                ;;
+        esac
+    done
+}
+
+parse_cache_rules() {
+    local rules="$1"
+    local entry
+    local key
+    local value
+    IFS=';' read -ra _cache_rules <<< "${rules}"
+
+    for entry in "${_cache_rules[@]}"; do
+        key="${entry%%=*}"
+        value="${entry#*=}"
+        key="${key//[[:space:]]/}"
+        value="${value//[[:space:]]/}"
+
+        if [[ -z "${key}" && -z "${value}" ]]; then
+            continue
+        fi
+
+        if [[ "${entry}" != *=* || -z "${key}" || -z "${value}" ]]; then
+            echo "Invalid --cache rule: ${entry}" >&2
+            exit 1
+        fi
+
+        case "${key}" in
+            reset|skip-update)
+                set_cache_targets "${key}" "${value}"
+                ;;
+            *)
+                echo "Unknown --cache rule key: ${key}" >&2
+                exit 1
+                ;;
+        esac
+    done
+}
+
+volume_has_file() {
+    local volume_name="$1"
+    local file_path="$2"
+
+    if [[ "${DRY_RUN}" == "true" ]]; then
+        return 1
+    fi
+
+    docker run --rm \
+        -v "${volume_name}:/cache" \
+        alpine:3.20 \
+        sh -c "test -f \"${file_path}\""
+}
+
+volume_has_entries() {
+    local volume_name="$1"
+    local dir_path="$2"
+
+    if [[ "${DRY_RUN}" == "true" ]]; then
+        return 1
+    fi
+
+    docker run --rm \
+        -v "${volume_name}:/cache" \
+        alpine:3.20 \
+        sh -c "ls -A \"${dir_path}\" >/dev/null 2>&1"
+}
+
+grype_db_ready() {
+    local volume_name="$1"
+
+    if [[ "${DRY_RUN}" == "true" ]]; then
+        return 1
+    fi
+
+    docker run --rm \
+        -e "GRYPE_DB_CACHE_DIR=${GRYPE_DB_CACHE_DIR}" \
+        -v "${volume_name}:${GRYPE_DB_CACHE_DIR}" \
+        "${GRYPE_IMAGE}:${GRYPE_TAG}" db status >/dev/null 2>&1
+}
+
+reset_cache_db() {
+    local volume_name="$1"
+    local db_dir="$2"
+    run docker run --rm \
+        -v "${volume_name}:/cache" \
+        alpine:3.20 \
+        sh -c "rm -rf \"${db_dir}\" && mkdir -p \"${db_dir}\""
+}
 
 # ---------------------------------------------------------------------------
 # Argument parsing
@@ -117,11 +294,46 @@ while [[ $# -gt 0 ]]; do
         --no-lint)          LINT=false ;;
         --no-test)          TEST=false ;;
         --no-scan)          SCAN=false ;;
-        --advise)           ADVISE=true;  _ADVISE_EXPLICIT=true ;;
-        --no-advise)        ADVISE=false; _ADVISE_EXPLICIT=true ;;
+        --advise|--advice)
+            _ADVISE_EXPLICIT=true
+            # Check if next arg looks like an advisement list (no -- prefix)
+            if [[ $# -gt 1 && ! "$2" =~ ^-- ]]; then
+                advisements="$2"; shift
+            else
+                advisements="grype,scout"
+            fi
+            # Parse the comma-delimited list
+            ADVISE_GRYPE=false
+            ADVISE_SCOUT=false
+            ADVISE_DIVE=false
+            IFS=',' read -ra adv_list <<< "$advisements"
+            for adv in "${adv_list[@]}"; do
+                case "$adv" in
+                    grype)  ADVISE_GRYPE=true ;;
+                    scout)  ADVISE_SCOUT=true ;;
+                    dive)   ADVISE_DIVE=true ;;
+                    all)    ADVISE_GRYPE=true; ADVISE_SCOUT=true; ADVISE_DIVE=true ;;
+                    *)      echo "Unknown advisement: $adv" >&2; exit 1 ;;
+                esac
+            done
+            ;;
+        --no-advise)
+            ADVISE_GRYPE=false
+            ADVISE_SCOUT=false
+            ADVISE_DIVE=false
+            _ADVISE_EXPLICIT=true
+            ;;
+        --cache)
+            if [[ $# -lt 2 || "$2" =~ ^-- ]]; then
+                echo "--cache requires CACHE_RULES" >&2
+                exit 1
+            fi
+            parse_cache_rules "$2"
+            shift
+            ;;
         --dry-run)          DRY_RUN=true ;;
         --help|-h)
-            sed -n '3,/^# EXAMPLES/p' "$0" | grep '^#' | sed 's/^# \{0,1\}//'
+            sed -n '3,/^# HELP_ENDS_HERE/p' "$0" | grep '^#' | sed 's/^# \{0,1\}//' | head -n -1
             exit 0 ;;
         *)
             echo "Unknown option: $1" >&2
@@ -132,7 +344,9 @@ done
 
 # --no-scan implies --no-advise unless --advise was given explicitly.
 if [[ "${SCAN}" == "false" && "${_ADVISE_EXPLICIT}" == "false" ]]; then
-    ADVISE=false
+    ADVISE_GRYPE=false
+    ADVISE_SCOUT=false
+    ADVISE_DIVE=false
 fi
 
 # ---------------------------------------------------------------------------
@@ -173,12 +387,24 @@ run() {
     fi
 }
 
+if [[ "${CACHE_RESET_TRIVY}" == "true" ]]; then
+    echo "==> Cache: reset Trivy DB" >&2
+    reset_cache_db "${TRIVY_CACHE_VOLUME}" "/cache/db"
+fi
+
+if [[ "${CACHE_RESET_GRYPE}" == "true" ]]; then
+    echo "==> Cache: reset Grype DB" >&2
+    reset_cache_db "${GRYPE_CACHE_VOLUME}" "/cache"
+fi
+
 # Script directory for build context and relative paths.
 script_dir=$(dirname "$(readlink -f "$0")")
 
 echo "Image:     ${full_image}:${VERSION}" >&2
 echo "Platforms: ${PLATFORMS}" >&2
 echo "Push:      ${PUSH}" >&2
+echo "Trivy DB:  volume:${TRIVY_CACHE_VOLUME}" >&2
+echo "Grype DB:  volume:${GRYPE_CACHE_VOLUME}" >&2
 echo "" >&2
 
 # ---------------------------------------------------------------------------
@@ -267,14 +493,14 @@ if [[ "${TEST}" == "true" ]]; then
 fi
 
 # ---------------------------------------------------------------------------
-# Stages 4 & 5: shared image archive
+# Stages 4 & 5a: shared image archive
 #
-# Both scanners receive the image as a tar archive rather than via the Docker
-# daemon socket.  The socket mount hangs on macOS Docker Desktop, and the
-# archive approach is faster and more portable.
+# Trivy and Grype receive the image as a tar archive rather than via the
+# Docker daemon socket.  The socket mount hangs on macOS Docker Desktop, and
+# the archive approach is faster and more portable.
 # ---------------------------------------------------------------------------
 _scan_tar=""
-if [[ "${SCAN}" == "true" || "${ADVISE}" == "true" ]]; then
+if [[ "${SCAN}" == "true" || "${ADVISE_GRYPE}" == "true" ]]; then
     _scan_tar=$(mktemp /tmp/image-scan-XXXXXX.tar)
     trap 'rm -f "${_scan_tar}"' EXIT
     if [[ "${DRY_RUN}" == "true" ]]; then
@@ -285,24 +511,40 @@ if [[ "${SCAN}" == "true" || "${ADVISE}" == "true" ]]; then
 fi
 
 # ---------------------------------------------------------------------------
+# Stage 4a: Prime Trivy DB (ensure DB exists before scan)
+# ---------------------------------------------------------------------------
+if [[ "${SCAN}" == "true" ]]; then
+    if [[ "${CACHE_SKIP_UPDATE_TRIVY}" != "true" ]]; then
+        if ! volume_has_file "${TRIVY_CACHE_VOLUME}" "/cache/db/trivy.db"; then
+            echo "==> Stage 4a: Prime Trivy DB" >&2
+            echo "    Priming Trivy DB cache (first run)" >&2
+            # Prime the DB in a separate step to handle network errors gracefully.
+            # Use --skip-update in the actual scan after this completes.
+            if ! run docker run --rm \
+                -v "${TRIVY_CACHE_VOLUME}:/root/.cache/trivy" \
+                "${TRIVY_IMAGE}:${TRIVY_TAG}" image --quiet --download-db-only; then
+                echo "    Warning: could not initialize Trivy DB cache; scan may be slow" >&2
+            fi
+        fi
+    fi
+fi
+
+# ---------------------------------------------------------------------------
 # Stage 4: Scan (Trivy)
 # ---------------------------------------------------------------------------
 if [[ "${SCAN}" == "true" ]]; then
     echo "==> Stage 4: Scan ${full_image}:${VERSION}" >&2
 
-    # Trivy's --timeout flag does not cover its OCI-based DB download, so the
-    # fetch can hang indefinitely.  Skip the DB update when a local cache is
-    # already present; on first run the download will proceed normally.
-    # To pre-populate: docker run --rm -v ~/.cache/trivy:/root/.cache/trivy \
-    #   aquasec/trivy:<tag> image --download-db-only
-    _trivy_db_flags=()
-    if [[ -f "${HOME}/.cache/trivy/db/trivy.db" ]]; then
-        _trivy_db_flags=(--skip-db-update --skip-java-db-update)
+    # Always skip DB update in the actual scan since we primed it in stage 4a.
+    # This avoids network downloads during the scan and respects --cache skip-update.
+    _trivy_db_flags=(--skip-db-update --skip-java-db-update)
+    if [[ "${CACHE_SKIP_UPDATE_TRIVY}" == "true" ]]; then
+        echo "    Trivy DB update skipped for this run (--cache skip-update=trivy)" >&2
     fi
 
     run docker run --rm \
         -v "${_scan_tar}:/scan.tar:ro" \
-        -v "${HOME}/.cache/trivy:/root/.cache/trivy" \
+        -v "${TRIVY_CACHE_VOLUME}:/root/.cache/trivy" \
         "${TRIVY_IMAGE}:${TRIVY_TAG}" image \
             --quiet \
             --no-progress \
@@ -315,29 +557,44 @@ if [[ "${SCAN}" == "true" ]]; then
 fi
 
 # ---------------------------------------------------------------------------
-# Stage 5: Advise (Grype — non-gating)
+# Stage 5a: Advise (Grype — non-gating)
 # Runs a full-severity Grype scan and prints findings to the build log.
 # Never sets a non-zero exit code due to vulnerability findings; the build
 # continues regardless of what Grype reports.
 # ---------------------------------------------------------------------------
-if [[ "${ADVISE}" == "true" ]]; then
-    echo "==> Stage 5: Advise ${full_image}:${VERSION}" >&2
+if [[ "${ADVISE_GRYPE}" == "true" ]]; then
+    echo "==> Stage 5a: Advise (Grype) ${full_image}:${VERSION}" >&2
 
-    # Grype's DB download times out mid-body on restricted networks.  Only run
-    # the scan when a local DB cache already exists; otherwise skip with a hint.
-    # To pre-populate the cache:
-    #   docker run --rm -v ~/.cache/grype:/root/.cache/grype \
-    #     anchore/grype:<tag> db update
-    _grype_cache="${HOME}/.cache/grype"
-    if [[ ! -d "${_grype_cache}/db" ]]; then
-        echo "    Skipping: no Grype DB cache at ${_grype_cache}/db" >&2
-        echo "    Run: docker run --rm -v ~/.cache/grype:/root/.cache/grype \\" >&2
-        echo "           ${GRYPE_IMAGE}:${GRYPE_TAG} db update" >&2
-    else
-        mkdir -p "${_grype_cache}"
+    # Initialize the Grype DB cache on first run so the advisement can execute
+    # without requiring a separate manual bootstrap step.
+    _grype_run_scan=true
+
+    if ! grype_db_ready "${GRYPE_CACHE_VOLUME}"; then
+        echo "    No Grype DB cache found in volume; priming ${GRYPE_CACHE_VOLUME}" >&2
+    fi
+
+    if [[ "${CACHE_SKIP_UPDATE_GRYPE}" == "true" ]]; then
+        echo "    Grype DB update skipped for this run (--cache skip-update=grype)" >&2
+        if ! grype_db_ready "${GRYPE_CACHE_VOLUME}"; then
+            echo "    Warning: Grype DB cache is empty; skipping Grype advisement" >&2
+            _grype_run_scan=false
+        fi
+    elif ! grype_db_ready "${GRYPE_CACHE_VOLUME}"; then
+        echo "    Priming Grype DB cache (first run)" >&2
+        if ! run docker run --rm \
+            -e "GRYPE_DB_CACHE_DIR=${GRYPE_DB_CACHE_DIR}" \
+            -v "${GRYPE_CACHE_VOLUME}:${GRYPE_DB_CACHE_DIR}" \
+            "${GRYPE_IMAGE}:${GRYPE_TAG}" db update --quiet; then
+            echo "    Warning: could not initialize Grype DB cache; skipping Grype advisement" >&2
+            _grype_run_scan=false
+        fi
+    fi
+
+    if [[ "${_grype_run_scan}" == "true" ]]; then
         run docker run --rm \
             -v "${_scan_tar}:/scan.tar:ro" \
-            -v "${_grype_cache}:/root/.cache/grype" \
+            -e "GRYPE_DB_CACHE_DIR=${GRYPE_DB_CACHE_DIR}" \
+            -v "${GRYPE_CACHE_VOLUME}:${GRYPE_DB_CACHE_DIR}" \
             -e GRYPE_DB_AUTO_UPDATE=false \
             "${GRYPE_IMAGE}:${GRYPE_TAG}" \
                 docker-archive:/scan.tar || true
@@ -348,6 +605,30 @@ fi
 if [[ -n "${_scan_tar}" ]]; then
     rm -f "${_scan_tar}"
     trap - EXIT
+fi
+
+# ---------------------------------------------------------------------------
+# Stage 5b: Advise (Docker Scout — non-gating)
+# Runs Docker Scout and prints findings to the build log.
+# Never sets a non-zero exit code; the build continues regardless.
+# ---------------------------------------------------------------------------
+if [[ "${ADVISE_SCOUT}" == "true" ]]; then
+    echo "==> Stage 5b: Advise (Scout) ${full_image}:${VERSION}" >&2
+    run docker scout cves "${full_image}:${VERSION}" || true
+fi
+
+# ---------------------------------------------------------------------------
+# Stage 5c: Advise (Dive — non-gating)
+# Analyzes image layers for bloat, optimization opportunities, and composition.
+# Never sets a non-zero exit code; the build continues regardless.
+# ---------------------------------------------------------------------------
+if [[ "${ADVISE_DIVE}" == "true" ]]; then
+    echo "==> Stage 5c: Advise (Dive) ${full_image}:${VERSION}" >&2
+    run docker run --rm \
+        -v /var/run/docker.sock:/var/run/docker.sock:ro \
+        "${DIVE_IMAGE}:${DIVE_TAG}" \
+            --ci \
+            "${full_image}:${VERSION}" || true
 fi
 
 # ---------------------------------------------------------------------------

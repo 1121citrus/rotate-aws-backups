@@ -112,8 +112,11 @@ HIGH/CRITICAL vulnerabilities.
 ## Known vulnerabilities
 
 All seven remaining vulnerabilities are in Alpine APK packages with no
-upstream fix available as of 2026-03-20. They cannot be remediated without
+upstream fix available as of **2026-03-20**. They cannot be remediated without
 replacing Alpine or the affected APK packages.
+
+**Distinction:** A "fixable" CVE has a patch available but not yet deployed (remediation is possible).
+An "unfixed" CVE has no patch available from any vendor (no remediation possible).
 
 | CVE | Package | Severity | Status | Notes |
 | --- | --- | --- | --- | --- |
@@ -141,6 +144,6 @@ The following CVEs were present in earlier releases and have been fixed:
 
 ## Reporting vulnerabilities
 
-Open a [GitHub issue](../../issues) marked **Security** or e-mail
-`jim@hanlonsoftware.com` directly.  Please do not disclose vulnerabilities
-publicly before a fix is available.
+Open a [GitHub issue](../../issues) marked **Security**. Please do not disclose
+vulnerabilities publicly before a fix is available. For sensitive reports, contact
+the project maintainers through the GitHub security advisory system.
