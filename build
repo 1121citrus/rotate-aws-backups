@@ -267,18 +267,51 @@ if [[ "${TEST}" == "true" ]]; then
 fi
 
 # ---------------------------------------------------------------------------
+# Stages 4 & 5: shared image archive
+#
+# Both scanners receive the image as a tar archive rather than via the Docker
+# daemon socket.  The socket mount hangs on macOS Docker Desktop, and the
+# archive approach is faster and more portable.
+# ---------------------------------------------------------------------------
+_scan_tar=""
+if [[ "${SCAN}" == "true" || "${ADVISE}" == "true" ]]; then
+    _scan_tar=$(mktemp /tmp/image-scan-XXXXXX.tar)
+    trap 'rm -f "${_scan_tar}"' EXIT
+    if [[ "${DRY_RUN}" == "true" ]]; then
+        echo "[DRY RUN] docker save ${full_image}:${VERSION} > ${_scan_tar}" >&2
+    else
+        docker save "${full_image}:${VERSION}" > "${_scan_tar}"
+    fi
+fi
+
+# ---------------------------------------------------------------------------
 # Stage 4: Scan (Trivy)
 # ---------------------------------------------------------------------------
 if [[ "${SCAN}" == "true" ]]; then
     echo "==> Stage 4: Scan ${full_image}:${VERSION}" >&2
+
+    # Trivy's --timeout flag does not cover its OCI-based DB download, so the
+    # fetch can hang indefinitely.  Skip the DB update when a local cache is
+    # already present; on first run the download will proceed normally.
+    # To pre-populate: docker run --rm -v ~/.cache/trivy:/root/.cache/trivy \
+    #   aquasec/trivy:<tag> image --download-db-only
+    _trivy_db_flags=()
+    if [[ -f "${HOME}/.cache/trivy/db/trivy.db" ]]; then
+        _trivy_db_flags=(--skip-db-update --skip-java-db-update)
+    fi
+
     run docker run --rm \
-        -v /var/run/docker.sock:/var/run/docker.sock:ro \
+        -v "${_scan_tar}:/scan.tar:ro" \
+        -v "${HOME}/.cache/trivy:/root/.cache/trivy" \
         "${TRIVY_IMAGE}:${TRIVY_TAG}" image \
             --quiet \
+            --no-progress \
             --exit-code 1 \
             --ignore-unfixed \
             --severity HIGH,CRITICAL \
-            "${full_image}:${VERSION}"
+            --timeout 5m \
+            "${_trivy_db_flags[@]}" \
+            --input /scan.tar
 fi
 
 # ---------------------------------------------------------------------------
@@ -289,10 +322,32 @@ fi
 # ---------------------------------------------------------------------------
 if [[ "${ADVISE}" == "true" ]]; then
     echo "==> Stage 5: Advise ${full_image}:${VERSION}" >&2
-    run docker run --rm \
-        -v /var/run/docker.sock:/var/run/docker.sock:ro \
-        "${GRYPE_IMAGE}:${GRYPE_TAG}" \
-            "${full_image}:${VERSION}" || true
+
+    # Grype's DB download times out mid-body on restricted networks.  Only run
+    # the scan when a local DB cache already exists; otherwise skip with a hint.
+    # To pre-populate the cache:
+    #   docker run --rm -v ~/.cache/grype:/root/.cache/grype \
+    #     anchore/grype:<tag> db update
+    _grype_cache="${HOME}/.cache/grype"
+    if [[ ! -d "${_grype_cache}/db" ]]; then
+        echo "    Skipping: no Grype DB cache at ${_grype_cache}/db" >&2
+        echo "    Run: docker run --rm -v ~/.cache/grype:/root/.cache/grype \\" >&2
+        echo "           ${GRYPE_IMAGE}:${GRYPE_TAG} db update" >&2
+    else
+        mkdir -p "${_grype_cache}"
+        run docker run --rm \
+            -v "${_scan_tar}:/scan.tar:ro" \
+            -v "${_grype_cache}:/root/.cache/grype" \
+            -e GRYPE_DB_AUTO_UPDATE=false \
+            "${GRYPE_IMAGE}:${GRYPE_TAG}" \
+                docker-archive:/scan.tar || true
+    fi
+fi
+
+# Clean up shared scan archive.
+if [[ -n "${_scan_tar}" ]]; then
+    rm -f "${_scan_tar}"
+    trap - EXIT
 fi
 
 # ---------------------------------------------------------------------------
