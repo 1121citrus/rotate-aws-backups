@@ -1,0 +1,10 @@
+rules:
+  # lowestEfficiency default (0.9) is kept; Alpine upgrade creates modified
+  # files across layers so the efficiency score can legitimately be lower.
+  lowestEfficiency: 0.9
+  # Relaxed from the default 0.1: `apk upgrade` on Alpine edge unavoidably
+  # overwrites base-image files (old versions remain in the base layer),
+  # which Dive counts as wasted space.  20% provides a buffer for that
+  # while still catching genuinely bloated images.
+  highestUserWastedPercent: 0.20
+  highestWastedBytes: disabled

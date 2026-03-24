@@ -30,9 +30,16 @@ set -o errexit -o errtrace -o nounset -o pipefail
 is_true "${DEBUG:=false}" && set -o xtrace -o verbose
 
 function has_cronjob_run() {
-    # FIXME -- See https://github.com/dragonmantank/cron-expression $cron->getPreviousRunDate()
-    # Compare with a timestamp file to see if it ran as expected
-    true
+    # Check for a success marker file written after each successful rotation.
+    # If the cron job is crashing silently, this check will fail and the
+    # container will report unhealthy, alerting the operator.
+    local marker_file="${HEALTHCHECK_SUCCESS_FILE:-/tmp/.rotate-aws-backups-success}"
+    if [[ -f "${marker_file}" ]]; then
+        # Check if the marker is recent (within the last 25 hours, allowing for daily cron).
+        local marker_age=$(($(date +%s) - $(stat -f %m "${marker_file}" 2>/dev/null || echo 0)))
+        [[ ${marker_age} -lt 90000 ]] && return 0
+    fi
+    error "backup has not run recently"
 }
 
 function is_crond_running() {

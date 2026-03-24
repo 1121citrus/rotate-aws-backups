@@ -64,13 +64,17 @@ RUN echo "[INFO] start installing rotate-aws-backups" \
            fi \
         && echo "[INFO] patching vulnerable transitive dependencies" \
         && pip install --no-cache-dir \
+               "setuptools>=78.1.0" \
+               "idna>=3.7" \
                "urllib3>=2.6.3" \
                "cryptography>=46.0.5" \
                "zipp>=3.19.1" \
-        && rm -f /usr/lib/python3.12/EXTERNALLY-MANAGED \
+        && rm -f /usr/lib/python${PYTHON_VERSION}/EXTERNALLY-MANAGED \
         && /usr/bin/python3 -m ensurepip --upgrade \
         && /usr/bin/python3 -m pip install --no-cache-dir "pip>=26.0" \
         && /usr/bin/python3 -m pip install --no-cache-dir \
+               "setuptools>=78.1.0" \
+               "idna>=3.7" \
                "urllib3>=2.6.3" \
                "cryptography>=46.0.5" \
                "zipp>=3.19.1" \

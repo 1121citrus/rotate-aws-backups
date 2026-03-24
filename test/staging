@@ -122,7 +122,11 @@ TRIVY_TAG=0.62.1
 GRYPE_IMAGE=anchore/grype
 GRYPE_TAG=v0.87.0
 DIVE_IMAGE=wagoodman/dive
-DIVE_TAG=latest
+DIVE_TAG=v0.13.1
+
+# Named Docker volumes for scanner DB caches (avoid host-path coupling).
+TRIVY_CACHE_VOLUME=rotate-aws-backups-staging-trivy-cache
+GRYPE_CACHE_VOLUME=rotate-aws-backups-staging-grype-cache
 
 show_help() {
     # Extract the header comment from SYNOPSIS through EXAMPLES (inclusive).
@@ -224,10 +228,10 @@ setup() {
     export _aws_cfg
     export -f _aws run_rotate_aws_backups run_service_detached
 
-    # Create a shared image archive for Trivy and Grype — avoids mounting the
-    # Docker socket inside scanner containers, which hangs on macOS Docker Desktop.
+    # Create a shared image archive for Trivy, Grype, and Dive — avoids mounting
+    # the Docker socket inside scanner containers, which hangs on macOS Docker Desktop.
     _scan_tar=""
-    if [[ "${_SCAN}" == "true" || "${_ADVISE_GRYPE}" == "true" ]]; then
+    if [[ "${_SCAN}" == "true" || "${_ADVISE_GRYPE}" == "true" || "${_ADVISE_DIVE}" == "true" ]]; then
         _scan_tar=$(mktemp /tmp/staging-scan-XXXXXX.tar)
         trap 'rm -f "${_scan_tar}"' EXIT
         docker save "${IMAGE}" > "${_scan_tar}"
@@ -528,17 +532,10 @@ test_staging_trivy_scan() {
     }
     printf '  running Trivy scan on %s...\n' "${IMAGE}" >&2
 
-    # Mirror build Stage 4: skip DB update when cache is present to avoid the
-    # OCI-based DB fetch hanging indefinitely on macOS Docker Desktop.
-    local trivy_db_flags=()
-    if [[ -f "${HOME}/.cache/trivy/db/trivy.db" ]]; then
-        trivy_db_flags=(--skip-db-update --skip-java-db-update)
-    fi
-
     local result=0
     docker run --rm \
         -v "${_scan_tar}:/scan.tar:ro" \
-        -v "${HOME}/.cache/trivy:/root/.cache/trivy" \
+        -v "${TRIVY_CACHE_VOLUME}:/root/.cache/trivy" \
         "${TRIVY_IMAGE}:${TRIVY_TAG}" image \
             --quiet \
             --no-progress \
@@ -546,7 +543,6 @@ test_staging_trivy_scan() {
             --ignore-unfixed \
             --severity HIGH,CRITICAL \
             --timeout 5m \
-            "${trivy_db_flags[@]}" \
             --input /scan.tar 2>&1 || result=$?
     if [[ ${result} -eq 0 ]]; then
         echo "PASS '${FUNCNAME[0]}': no unfixed HIGH/CRITICAL CVEs found"
@@ -567,19 +563,10 @@ test_staging_grype_advise() {
         return 0
     }
 
-    # Mirror build Stage 5a: skip DB download when cache exists to avoid
-    # mid-body timeout on restricted networks.
-    local grype_cache="${HOME}/.cache/grype"
-    if [[ ! -d "${grype_cache}/db" ]]; then
-        _skip "no Grype DB cache at ${grype_cache}/db (run: docker run --rm -v ~/.cache/grype:/root/.cache/grype ${GRYPE_IMAGE}:${GRYPE_TAG} db update)"
-        return 0
-    fi
-
     printf '  running Grype advisory scan on %s...\n' "${IMAGE}" >&2
     docker run --rm \
         -v "${_scan_tar}:/scan.tar:ro" \
-        -v "${grype_cache}:/root/.cache/grype" \
-        -e GRYPE_DB_AUTO_UPDATE=false \
+        -v "${GRYPE_CACHE_VOLUME}:/root/.cache/grype" \
         "${GRYPE_IMAGE}:${GRYPE_TAG}" \
             docker-archive:/scan.tar 2>&1 || true
     echo "PASS '${FUNCNAME[0]}': Grype advisory scan complete (advisory only)"
@@ -606,10 +593,11 @@ test_staging_dive_advise() {
     }
     printf '  running Dive layer analysis on %s...\n' "${IMAGE}" >&2
     docker run --rm \
-        -v /var/run/docker.sock:/var/run/docker.sock:ro \
+        -v "${_scan_tar}:/scan.tar:ro" \
         "${DIVE_IMAGE}:${DIVE_TAG}" \
+            --source docker-archive \
             --ci \
-            "${IMAGE}" 2>&1 || true
+            /scan.tar 2>&1 || true
     echo "PASS '${FUNCNAME[0]}': Dive layer analysis complete (advisory only)"
 }
 

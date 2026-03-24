@@ -112,7 +112,7 @@ HIGH/CRITICAL vulnerabilities.
 ## Known vulnerabilities
 
 All seven remaining vulnerabilities are in Alpine APK packages with no
-upstream fix available as of **2026-03-20**. They cannot be remediated without
+upstream fix available as of **2026-03-23**. They cannot be remediated without
 replacing Alpine or the affected APK packages.
 
 **Distinction:** A "fixable" CVE has a patch available but not yet deployed (remediation is possible).
@@ -141,9 +141,10 @@ The following CVEs were present in earlier releases and have been fixed:
 | CVE-2025-8869, CVE-2026-1703 | `pip` (system Python) | Upgraded system Python pip to ≥26.0 |
 | CVE-2026-26007 | `cryptography` (system Python — aws-cli runtime) | Upgraded via system Python pip |
 | CVE-2024-12797 | `cryptography` (PyPI) | Resolved by `cryptography>=46.0.5` pin |
+| CVE-2024-6345 | `setuptools` (PyPI) | Pinned `setuptools>=78.1.0` in both Python envs |
+| CVE-2024-3651 | `idna` (PyPI) | Pinned `idna>=3.7` in both Python envs |
 
 ## Reporting vulnerabilities
 
-Open a [GitHub issue](../../issues) marked **Security**. Please do not disclose
-vulnerabilities publicly before a fix is available. For sensitive reports, contact
-the project maintainers through the GitHub security advisory system.
+Please report security vulnerabilities through the [GitHub Security tab](https://github.com/1121citrus/rotate-aws-backups/security).
+Do not open a public GitHub issue for security vulnerabilities.
