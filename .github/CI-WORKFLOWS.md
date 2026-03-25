@@ -4,13 +4,14 @@ Automated linting, building, testing, security scanning, and Docker image public
 
 ## Workflow Overview
 
-| Stage     | Trigger                              | Purpose                                        |
-| --------- | ------------------------------------ | ---------------------------------------------- |
-| **Lint**  | All pushes, PRs, tags                | Validate Dockerfile and shell scripts          |
-| **Build** | After lint                           | Build image as artifact (for scan)             |
-| **Test**  | After lint (parallel with build)     | Run bats tests directly on the runner          |
-| **Scan**  | After build                          | Trivy image scan — blocks push on fixable CVEs |
-| **Push**  | Version tags and staging branch only | Multi-platform build and push to Docker Hub    |
+| Stage          | Trigger                              | Purpose                                        |
+| -------------- | ------------------------------------ | ---------------------------------------------- |
+| **Lint**       | All pushes, PRs, tags                | Validate Dockerfile and shell scripts          |
+| **Build**      | After lint                           | Build image as artifact (for scan)             |
+| **Test**       | After lint (parallel with build)     | Run bats tests directly on the runner          |
+| **Scan**       | After build                          | Trivy image scan — blocks push on fixable CVEs |
+| **Push**       | Version tags and staging branch only | Multi-platform build and push to Docker Hub    |
+| **Dependabot** | Weekly (Monday 06:00 UTC)            | Keep GitHub Actions versions current           |
 
 ## CI Workflow (`ci.yml`)
 
@@ -46,7 +47,8 @@ No automation bumps the version — the tag is always a deliberate decision.
 
 ## Stage 2: Build
 
-Builds the Docker image for `linux/amd64` and exports as a GitHub Actions artifact (`docker-image`). The image is used only by the scan job — tests run directly on the runner.
+Builds the Docker image for `linux/amd64` and exports as a GitHub Actions artifact
+(`docker-image`). The image is used only by the scan job — tests run directly on the runner.
 
 Artifact retention: 1 day.
 
@@ -54,7 +56,8 @@ Artifact retention: 1 day.
 
 ## Stage 3: Test
 
-Runs in parallel with the build job (both depend only on lint). Installs `bats` and `jq` directly on the runner and executes the test suites:
+Runs in parallel with the build job (both depend only on lint). Installs `bats` and `jq`
+directly on the runner and executes the test suites:
 
 - `test/01-dockerfile.bats` — validates Dockerfile structure (content checks)
 - `test/02-functional.bats` — validates shell script behaviour using mock binaries in `test/bin/`
@@ -70,7 +73,8 @@ Scans the built image **before** it is pushed to Docker Hub.
 - **Tool:** Trivy `aquasecurity/trivy-action@0.35.0` (pinned)
 - **Severity:** CRITICAL, HIGH
 - **Blocking:** `exit-code: 1` — **blocks the build and prevents push** if fixable CVEs are found
-- **Noise reduction:** `ignore-unfixed: true` — suppresses CVEs with no available vendor patch (unfixed CVEs are reported but do not block the build)
+- **Noise reduction:** `ignore-unfixed: true` — suppresses CVEs with no available vendor patch
+  (unfixed CVEs are reported but do not block the build)
 - **DB caching:** `~/.cache/trivy` is cached between runs with `actions/cache`; the vulnerability DB is
   only re-downloaded when the cache is cold or the DB has been updated
 - **Download noise:** `TRIVY_NO_PROGRESS=true` suppresses progress bars; `TRIVY_QUIET=true` suppresses
@@ -98,7 +102,7 @@ Runs only when test and scan both pass, and only on version tags or the staging 
 
 ## Execution Flow
 
-```
+```text
 On push/PR
     ↓
 [Lint] — hadolint + shellcheck
@@ -138,3 +142,16 @@ On push/PR
 - `test/03-build.bats` — Build artifact validation tests
 - `test/bin/` — Mock binaries (aws, jq, rotate-backups)
 - `test/staging` — Integration test script with real S3 bucket support
+
+---
+
+## Automated dependency updates
+
+`dependabot.yml` configures weekly automated PRs to keep GitHub Actions current.
+
+- **Schedule:** Every Monday at 06:00 UTC
+- **Scope:** GitHub Actions (`package-ecosystem: github-actions`) — updates action pins in
+  `.github/workflows/*.yml`
+- **Labels:** `dependencies`, `github-actions`
+- **Security benefit:** Dependabot also proposes SHA-pinned digests (recommended for SLSA /
+  OpenSSF Scorecard hardening)
