@@ -38,9 +38,9 @@ No automation bumps the version — the tag is always a deliberate decision.
 ## Stage 1: Lint
 
 - **Hadolint** — Dockerfile best-practice checks
-- **ShellCheck** — static analysis of `src/` shell scripts:
-  - `src/rotate-aws-backups`, `src/startup`, `src/healthcheck`, `src/rotate`
-  - `src/include/common-functions`
+- **ShellCheck** — static analysis of all shell scripts:
+  - `build`, `src/include/common-functions`, `src/rotate-aws-backups`, `src/startup`, `src/healthcheck`, `src/rotate`
+  - `test/staging`
 
 ---
 
@@ -127,6 +127,7 @@ On push/PR
 ### Key Files
 
 - `Dockerfile` — Container build definition
+- `build` — Build helper script (shellchecked)
 - `src/rotate-aws-backups` — Main rotation script
 - `src/rotate` — Rotation helper
 - `src/startup` — Container startup script

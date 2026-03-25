@@ -28,8 +28,14 @@ jobs:
 
       - name: Lint shell scripts with shellcheck
         run: |
-          shellcheck -x src/rotate-aws-backups src/startup src/healthcheck src/rotate
-          shellcheck src/include/common-functions
+          shellcheck -x \
+            build \
+            src/include/common-functions \
+            src/rotate-aws-backups \
+            src/startup \
+            src/healthcheck \
+            src/rotate \
+            test/staging
 
       - name: Lint markdown with markdownlint-cli
         run: |
