@@ -32,15 +32,10 @@ jobs:
           dockerfile: Dockerfile
 
       - name: Lint shell scripts with shellcheck
-        run: |
-          shellcheck -x \
-            build \
-            src/include/common-functions \
-            src/rotate-aws-backups \
-            src/startup \
-            src/healthcheck \
-            src/rotate \
-            test/staging
+        uses: ludeeus/action-shellcheck@00cae500b08a931fb5698e11e79bfbd38e612a38 # 2.0.0
+        with:
+          scandir: "."
+          severity: warning
 
       - name: Lint markdown with markdownlint-cli
         run: |
