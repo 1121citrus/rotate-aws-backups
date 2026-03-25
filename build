@@ -69,7 +69,7 @@
 # STAGES (run in order; each can be skipped with --no-<stage>)
 #   1. Lint   — hadolint (Dockerfile)
 #   2. Build  — single-platform --load into local Docker daemon
-#   3. Test   — bats test suite (runs in bats/bats:latest Docker container)
+#   3. Test   — bats test suite (runs in bats/bats:1.13.0 Docker container)
 #   4. Scan   — Trivy CRITICAL/HIGH image scan (blocking; exit 1 on findings)
 #   5. Advise — multiple advisory scans (advisory only; never blocks the build)
 #              a) Grype   — full-severity scan
@@ -500,15 +500,15 @@ fi
 # ---------------------------------------------------------------------------
 # Stage 3: Test (bats)
 # ---------------------------------------------------------------------------
-# Tests run inside the official bats/bats:latest container with the project
+# Tests run inside the official bats/bats:1.13.0 container with the project
 # source bind-mounted.  This avoids requiring bats to be installed on the host
 # and keeps the test environment consistent with CI.
 if [[ "${TEST}" == "true" ]]; then
     echo "==> Stage 3: Test" >&2
-    run docker run --rm \
+    run docker run -i --rm \
         -v "${script_dir}:/code:ro" \
         -w /code \
-        bats/bats:latest \
+        bats/bats:1.13.0 \
             test/01-dockerfile.bats \
             test/02-functional.bats \
             test/03-build.bats

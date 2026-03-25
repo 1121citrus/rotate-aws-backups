@@ -82,23 +82,23 @@ jobs:
           retention-days: 1
 
   # ── Stage 3: Test ──────────────────────────────────────────────────────────
-  # Bats tests run directly on the runner using mock binaries in test/bin/.
-  # Tests verify Dockerfile content and shell script behaviour without
-  # requiring a running container.
+  # Bats tests run inside the official bats/bats:1.13.0 container with the
+  # project source bind-mounted.  Mock binaries in test/bin/ are used for aws,
+  # jq, and rotate-backups, so no host-level packages are required.
   test:
     needs: lint
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
 
-      - name: Install bats and test dependencies
-        run: sudo apt-get update && sudo apt-get install -y bats jq
-
-      - name: Run Dockerfile tests
-        run: bats test/01-dockerfile.bats
-
-      - name: Run functional tests
-        run: bats test/02-functional.bats
+      - name: Run bats tests
+        run: |
+          docker run -i --rm \
+            -v "$PWD:/code:ro" \
+            -w /code \
+            bats/bats:1.13.0 \
+              test/01-dockerfile.bats \
+              test/02-functional.bats
 
   # ── Stage 4: Security scan ─────────────────────────────────────────────────
   # Scans the built image before pushing.  Fails the job (and blocks push) if
