@@ -68,6 +68,8 @@ jobs:
           context: .
           load: true
           tags: ${{ env.IMAGE }}:ci-${{ github.sha }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
 
       - name: Save image for downstream jobs
         run: docker save "$IMAGE:ci-${{ github.sha }}" | gzip > /tmp/image.tar.gz
@@ -180,3 +182,5 @@ jobs:
           sbom: true
           provenance: mode=max
           tags: ${{ steps.tags.outputs.tags }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max

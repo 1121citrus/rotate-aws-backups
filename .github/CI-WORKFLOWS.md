@@ -58,6 +58,10 @@ Builds the Docker image for `linux/amd64` and exports as a GitHub Actions artifa
 
 Artifact retention: 1 day.
 
+**Docker layer cache:** `cache-from: type=gha` / `cache-to: type=gha,mode=max` — build
+layers are saved to and restored from GitHub Actions cache, speeding up incremental
+builds. The push job restores from the same cache.
+
 ---
 
 ## Stage 3: Test
@@ -103,6 +107,7 @@ Runs only when test and scan both pass, and only on version tags or the staging 
 
 - **Platforms:** `linux/amd64`, `linux/arm64`
 - **Attestations:** `sbom: true` + `provenance: mode=max` (SLSA L3)
+- **Layer cache:** `cache-from: type=gha` / `cache-to: type=gha,mode=max`
 
 ---
 
