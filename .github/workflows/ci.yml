@@ -94,7 +94,8 @@ jobs:
             -w /code \
             bats/bats:1.13.0 \
               test/01-dockerfile.bats \
-              test/02-functional.bats
+              test/02-functional.bats \
+              test/03-build.bats
 
   # ── Stage 4: Security scan ─────────────────────────────────────────────────
   # Scans the built image before pushing.  Fails the job (and blocks push) if
