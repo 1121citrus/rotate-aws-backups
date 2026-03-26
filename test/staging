@@ -232,7 +232,7 @@ setup() {
     # the Docker socket inside scanner containers, which hangs on macOS Docker Desktop.
     _scan_tar=""
     if [[ "${_SCAN}" == "true" || "${_ADVISE_GRYPE}" == "true" || "${_ADVISE_DIVE}" == "true" ]]; then
-        _scan_tar=$(mktemp /tmp/staging-scan-XXXXXX.tar)
+        _scan_tar=$(mktemp /tmp/staging-scan-XXXXXX)
         trap 'rm -f "${_scan_tar}"' EXIT
         docker save "${IMAGE}" > "${_scan_tar}"
     fi
