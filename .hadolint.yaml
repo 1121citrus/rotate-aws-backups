@@ -1,0 +1,4 @@
+# hadolint configuration for rotate-aws-backups Dockerfile.
+# https://github.com/hadolint/hadolint
+
+failure-threshold: warning
