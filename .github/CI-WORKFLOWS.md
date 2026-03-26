@@ -17,6 +17,11 @@ Automated linting, building, testing, security scanning, and Docker image public
 
 Single unified workflow for all CI/CD stages.
 
+### Global configuration
+
+- **Image name:** `1121citrus/rotate-aws-backups`
+- **Node.js actions runtime:** v24 (via `FORCE_JAVASCRIPT_ACTIONS_TO_NODE24`)
+
 ### Trigger Events
 
 - **Push:** `main`, `master`, `staging` branches and `v*` version tags
@@ -66,8 +71,13 @@ builds. The push job restores from the same cache.
 
 ## Stage 3: Test
 
-Runs in parallel with the build job (both depend only on lint). Installs `bats` and `jq`
-directly on the runner and executes the test suites:
+Runs in parallel with the build job (both depend only on lint). Executes the test suites
+inside `bats/bats:1.13.0` with the repository bind-mounted:
+
+```bash
+docker run -i --rm -v "$PWD:/code:ro" -w /code bats/bats:1.13.0 \
+  test/01-dockerfile.bats test/02-functional.bats
+```
 
 - `test/01-dockerfile.bats` — validates Dockerfile structure (content checks)
 - `test/02-functional.bats` — validates shell script behaviour using mock binaries in `test/bin/`
