@@ -209,6 +209,8 @@ parse_cache_rules() {
         value="${entry#*=}"
         key="${key//[[:space:]]/}"
         value="${value//[[:space:]]/}"
+        key="${key,,}"
+        value="${value,,}"
 
         if [[ -z "${key}" && -z "${value}" ]]; then
             continue
@@ -309,6 +311,8 @@ while [[ $# -gt 0 ]]; do
             ADVISE_DIVE=false
             IFS=',' read -ra adv_list <<< "$advisements"
             for adv in "${adv_list[@]}"; do
+                adv="${adv//[[:space:]]/}"
+                adv="${adv,,}"
                 case "$adv" in
                     grype)  ADVISE_GRYPE=true ;;
                     scout)  ADVISE_SCOUT=true ;;

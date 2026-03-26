@@ -68,6 +68,18 @@ setup() {
     [[ "$output" == *"Stage 5c: Advise (Dive)"* ]]
 }
 
+@test "build --advise Dive enables Dive" {
+    run "${BUILD_SCRIPT}" --advise Dive --dry-run --no-lint --no-test --no-scan 2>&1
+    [[ $status -eq 0 ]]
+    [[ "$output" == *"Stage 5c: Advise (Dive)"* ]]
+}
+
+@test "build --advise DIVE enables Dive" {
+    run "${BUILD_SCRIPT}" --advise DIVE --dry-run --no-lint --no-test --no-scan 2>&1
+    [[ $status -eq 0 ]]
+    [[ "$output" == *"Stage 5c: Advise (Dive)"* ]]
+}
+
 @test "build --advice scout is alias for --advise scout" {
     run "${BUILD_SCRIPT}" --advice scout --dry-run --no-lint --no-test --no-scan 2>&1
     [[ $status -eq 0 ]]
@@ -122,6 +134,19 @@ setup() {
     run "${BUILD_SCRIPT}" --cache "reset=trivy;skip-update=grype" --dry-run --no-lint --no-test --no-scan --no-advise 2>&1
     [[ $status -eq 0 ]]
     [[ "$output" == *"Cache: reset Trivy DB"* ]]
+}
+
+@test "build --cache Reset=All references both caches" {
+    run "${BUILD_SCRIPT}" --cache "Reset=All" --dry-run --no-lint --no-test --no-scan --no-advise 2>&1
+    [[ $status -eq 0 ]]
+    [[ "$output" == *"Cache: reset Trivy DB"* ]]
+    [[ "$output" == *"Cache: reset Grype DB"* ]]
+}
+
+@test "build --cache Skip-Update=TrIvY skips Trivy DB update" {
+    run "${BUILD_SCRIPT}" --cache "Skip-Update=TrIvY" --dry-run --no-lint --no-test 2>&1
+    [[ $status -eq 0 ]]
+    [[ "$output" == *"Trivy DB update skipped"* ]]
 }
 
 @test "build --cache rejects invalid rule key" {
