@@ -7,9 +7,10 @@ Automated linting, building, testing, security scanning, and Docker image public
 | Stage          | Trigger                              | Purpose                                        |
 | -------------- | ------------------------------------ | ---------------------------------------------- |
 | **Lint**       | All pushes, PRs, tags                | Validate Dockerfile and shell scripts          |
-| **Build**      | After lint                           | Build image as artifact (for scan)             |
+| **Build**      | After lint                           | Build image as artifact (for smoke + scan)     |
 | **Test**       | After lint (parallel with build)     | Run bats tests directly on the runner          |
-| **Scan**       | After build                          | Trivy image scan — blocks push on fixable CVEs |
+| **Smoke**      | After build (parallel with scan)     | Image-level sanity checks against built image  |
+| **Scan**       | After build (parallel with smoke)    | Trivy image scan — blocks push on fixable CVEs |
 | **Push**       | Version tags and staging branch only | Multi-platform build and push to Docker Hub    |
 | **Dependabot**     | Weekly (Monday 06:00 UTC)            | Keep GitHub Actions versions current           |
 | **Release Please** | Push to main/master                  | Open release PR; create tag and GitHub Release |
@@ -60,7 +61,8 @@ No automation bumps the version — the tag is always a deliberate decision.
 ## Stage 2: Build
 
 Builds the Docker image for `linux/amd64` and exports as a GitHub Actions artifact
-(`docker-image`). The image is used only by the scan job — tests run directly on the runner.
+(`docker-image`). The image is consumed by the smoke and scan jobs — unit tests run directly
+on the runner with mock binaries.
 
 Artifact retention: 1 day.
 
@@ -87,6 +89,21 @@ Tests do not require the Docker image to be built.
 
 ---
 
+## Stage 3b: Image smoke test
+
+Runs in parallel with the scan job (both depend on build). Downloads the built image artifact and runs lightweight checks to catch packaging and runtime regressions that source-mounted bats tests cannot detect.
+
+Verifies:
+
+- **Runtime dependencies:** `bash`, `aws` CLI, `jq`, and `rotate-backups` are available inside the image
+- **Include file:** `common-functions` is installed at `/usr/local/include/`
+- **Entrypoint:** `--help` and `--version` exit successfully
+- **Script permissions:** `healthcheck` is executable at `/usr/local/bin/`
+
+Each check runs via `docker run --rm` — no network access or credentials required.
+
+---
+
 ## Stage 4: Security scan
 
 Scans the built image **before** it is pushed to Docker Hub.
@@ -105,7 +122,7 @@ Scans the built image **before** it is pushed to Docker Hub.
 
 ## Stage 5: Push to Docker Hub
 
-Runs only when test and scan both pass, and only on version tags or the staging branch.
+Runs only when test, smoke, and scan all pass, and only on version tags or the staging branch.
 
 ### Tagging
 
@@ -131,10 +148,12 @@ On push/PR
     ↓ (parallel)
 [Build]                          [Test]
  - Docker image → artifact        - install bats + jq
- - for scan only                  - run 01-dockerfile.bats
-    ↓                             - run 02-functional.bats
-[Scan] — Trivy CRITICAL/HIGH
-    ↓ (both test + scan must pass)
+    ↓ (parallel)                  - run 01-dockerfile.bats
+[Smoke]        [Scan]             - run 02-functional.bats
+ - bash, aws    - Trivy
+ - jq, rotate     CRITICAL/HIGH
+ - --help/ver
+    ↓ (test + smoke + scan must pass)
 [Push] (tags and staging only)
  - QEMU + Buildx multi-arch
  - push amd64 + arm64
