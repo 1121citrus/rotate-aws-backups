@@ -35,6 +35,8 @@ ENV ROTATE_BACKUPS_VERSION=${ROTATE_BACKUPS_VERSION}
 
 ARG VERSION
 ENV ROTATE_AWS_BACKUPS_VERSION=${VERSION}
+ARG GIT_COMMIT=unknown
+ARG BUILD_DATE=unknown
 
 # OCI image annotation labels (https://github.com/opencontainers/image-spec/blob/main/annotations.md).
 # These are embedded in the image manifest and surfaced by 'docker inspect',
@@ -43,7 +45,10 @@ LABEL org.opencontainers.image.title="rotate-aws-backups" \
       org.opencontainers.image.description="Scheduled rotation of AWS S3 backup objects using the rotate-backups retention policy engine." \
       org.opencontainers.image.url="https://github.com/1121citrus/rotate-aws-backups" \
       org.opencontainers.image.source="https://github.com/1121citrus/rotate-aws-backups" \
-      org.opencontainers.image.licenses="AGPL-3.0-or-later"
+      org.opencontainers.image.licenses="AGPL-3.0-or-later" \
+      org.opencontainers.image.version="${VERSION}" \
+      org.opencontainers.image.revision="${GIT_COMMIT}" \
+      org.opencontainers.image.created="${BUILD_DATE}"
 
 # hadolint ignore=DL3013,DL3018
 RUN echo "[INFO] start installing rotate-aws-backups" \
