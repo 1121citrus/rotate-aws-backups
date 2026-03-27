@@ -50,6 +50,7 @@ LABEL org.opencontainers.image.title="rotate-aws-backups" \
       org.opencontainers.image.revision="${GIT_COMMIT}" \
       org.opencontainers.image.created="${BUILD_DATE}"
 
+COPY requirements.txt /tmp/
 # hadolint ignore=DL3013,DL3018
 RUN echo "[INFO] start installing rotate-aws-backups" \
         && apk update \
@@ -68,21 +69,13 @@ RUN echo "[INFO] start installing rotate-aws-backups" \
                pip install --no-cache-dir rotate-backups; \
            fi \
         && echo "[INFO] patching vulnerable transitive dependencies" \
-        && pip install --no-cache-dir \
-               "setuptools>=78.1.0" \
-               "idna>=3.7" \
-               "urllib3>=2.6.3" \
-               "cryptography>=46.0.5" \
-               "zipp>=3.19.1" \
+        && pip install --no-cache-dir -r /tmp/requirements.txt \
         && rm -f /usr/lib/python${PYTHON_VERSION}/EXTERNALLY-MANAGED \
         && /usr/bin/python3 -m ensurepip --upgrade \
         && /usr/bin/python3 -m pip install --no-cache-dir "pip>=26.0" \
         && /usr/bin/python3 -m pip install --no-cache-dir \
-               "setuptools>=78.1.0" \
-               "idna>=3.7" \
-               "urllib3>=2.6.3" \
-               "cryptography>=46.0.5" \
-               "zipp>=3.19.1" \
+               -r /tmp/requirements.txt \
+        && rm /tmp/requirements.txt \
         && install -d -m 755 \
                /usr/local/include \
                /usr/local/share/rotate-aws-backups \

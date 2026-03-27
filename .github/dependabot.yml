@@ -23,3 +23,18 @@ updates:
     labels:
       - "dependencies"
       - "github-actions"
+
+  # ── Python pip ───────────────────────────────────────────────────────────────
+  # Keeps requirements.txt transitive-patch dependencies up to date.
+  # Note: rotate-backups itself is intentionally unpinned here; its version
+  # is injected at build time via ROTATE_BACKUPS_VERSION build-arg.
+  - package-ecosystem: "pip"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+      time: "06:00"
+      timezone: "UTC"
+    labels:
+      - "dependencies"
+      - "python"
