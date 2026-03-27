@@ -407,12 +407,11 @@ function run_scheduler() {
     # Install the crontab entry
     local cmd=/usr/local/bin/rotate-aws-backups
     info "installing cron entry: ${cron_expr} ${cmd}"
-    mkdir -p /var/spool/cron/crontabs
-    chmod 0755 /var/spool/cron/crontabs
-    printf '%s %s 2>&1\n' "${cron_expr}" "${cmd}" \
-        > /var/spool/cron/crontabs/root
-    chmod 0644 /var/spool/cron/crontabs/root
-    info "crontab: $(cat /var/spool/cron/crontabs/root)"
+    local _crontab
+    _crontab="/var/spool/cron/crontabs/$(id -un)"
+    printf '%s %s 2>&1\n' "${cron_expr}" "${cmd}" > "${_crontab}"
+    chmod 0644 "${_crontab}"
+    info "crontab: $(cat "${_crontab}")"
 
     info "handing off to crond"
     exec crond -l 2 -f

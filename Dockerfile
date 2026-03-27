@@ -85,20 +85,24 @@ RUN echo "[INFO] start installing rotate-aws-backups" \
                > /usr/local/share/rotate-aws-backups/version \
         && echo "[INFO] completed installing rotate-aws-backups"
 
+# Create a non-privileged user; grant ownership of runtime-writable paths.
+ARG UID=10001
+RUN adduser \
+        --disabled-password --gecos "" --shell "/sbin/nologin" \
+        --uid "${UID}" rotate-aws-backups \
+    && install -d -m 0755 -o rotate-aws-backups /var/spool/cron/crontabs \
+    && chown rotate-aws-backups \
+           /var/log/rotate-aws-backups \
+           /var/log/rotate-aws-backups/rotate-backups.log
+
 COPY --chmod=644 ./src/include/common-functions /usr/local/include/
 COPY --chmod=755  ./src/healthcheck ./src/rotate ./src/rotate-aws-backups \
                   ./src/startup /usr/local/bin/
+
+USER rotate-aws-backups
 
 HEALTHCHECK --interval=60s --timeout=5s --retries=3 CMD ["/usr/local/bin/healthcheck"]
 
 WORKDIR /
 
-# NOTE: The container runs as root.  Alpine's busybox crond manages per-user
-# crontabs under /var/spool/cron/crontabs/{user}; running as root is the
-# straightforward way to write and read that file without additional privilege
-# setup.  Constrain the blast-radius at the Docker/Compose layer instead:
-#   - mount the aws-config credential file read-only via a Docker secret
-#   - do not bind-mount the host filesystem into the container
-#   - run the container in a network-isolated environment with only outbound
-#     access to AWS S3 endpoints
 ENTRYPOINT ["/usr/local/bin/rotate-aws-backups"]

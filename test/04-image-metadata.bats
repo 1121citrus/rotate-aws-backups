@@ -71,3 +71,8 @@ setup() {
     run grep -F 'org.opencontainers.image.created="${BUILD_DATE}"' "${DOCKERFILE}"
     [ "$status" -eq 0 ]
 }
+
+@test "Dockerfile has USER directive (non-root)" {
+    run grep -E '^USER ' "${DOCKERFILE}"
+    [ "$status" -eq 0 ]
+}

@@ -76,9 +76,10 @@ services:
       - aws-config
 ```
 
-> **Note:** the container runs as `root` because Alpine's busybox `crond` manages
-> per-user crontab files.  Use the `security_opt: no-new-privileges` and
-> network isolation above to constrain the blast radius.
+The container runs as the dedicated `rotate-aws-backups` user (UID 10001,
+shell `/sbin/nologin`).  The crontab is written to
+`/var/spool/cron/crontabs/rotate-aws-backups`; busybox `crond` reads it
+as that user.
 
 ## Environment variable injection
 
