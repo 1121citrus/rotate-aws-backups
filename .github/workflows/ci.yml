@@ -54,10 +54,10 @@ jobs:
               test/02-functional.bats \
               test/03-build.bats
 
-  # ── Stage 3b: Image smoke test ──────────────────────────────────────────────
-  # Quick sanity checks against the built image to catch packaging regressions
-  # not visible in source-mounted bats tests.
-  smoke:
+  # ── Stage 3b: Image smoke test ─────────────────────────────────────────────
+  # Run one built-image smoke test to catch packaging/runtime regressions not
+  # visible in source-mounted bats tests.
+  smoke-test:
     needs: build
     runs-on: ubuntu-latest
     steps:
@@ -69,30 +69,27 @@ jobs:
 
       - name: Load image
         run: gunzip -c /tmp/image.tar.gz | docker load
-
       - name: Verify bash is available
         run: docker run --rm --entrypoint bash "$IMAGE:latest" --version
-
       - name: Verify aws CLI is available
         run: docker run --rm --entrypoint aws "$IMAGE:latest" --version
-
       - name: Verify jq is available
         run: docker run --rm --entrypoint jq "$IMAGE:latest" --version
-
       - name: Verify rotate-backups is available
         run: docker run --rm --entrypoint rotate-backups "$IMAGE:latest" --version
-
       - name: Verify common-functions is installed
         run: docker run --rm --entrypoint test "$IMAGE:latest" -f /usr/local/include/common-functions
-
       - name: Verify entrypoint --help exits 0
         run: docker run --rm "$IMAGE:latest" --help
-
       - name: Verify entrypoint --version exits 0
         run: docker run --rm "$IMAGE:latest" --version
-
       - name: Verify healthcheck is executable
         run: docker run --rm --entrypoint test "$IMAGE:latest" -x /usr/local/bin/healthcheck
+      - name: Run image smoke test
+        run: |
+          docker inspect --format '{{json .Config.Entrypoint}}' "$IMAGE:latest" \
+            | grep -Fx '["/usr/local/bin/rotate-aws-backups"]'
+          docker run --rm "$IMAGE:latest" --help > /dev/null
 
   # ── Stage 4: Security scan ─────────────────────────────────────────────────
   scan:
@@ -103,7 +100,7 @@ jobs:
 
   # ── Stage 5: Push to Docker Hub ────────────────────────────────────────────
   push:
-    needs: [test, smoke, scan]
+    needs: [scan, smoke-test, test]
     if: >
       github.event_name == 'push' && (
         startsWith(github.ref, 'refs/tags/v') ||

@@ -8,7 +8,7 @@
 # SYNOPSIS
 #   build [--push] [--version VERSION] [--platform PLATFORMS]
 #         [--registry REGISTRY] [--no-sbom] [--no-provenance]
-#         [--no-lint] [--no-test] [--no-scan]
+#         [--no-lint] [--no-test] [--no-smoke] [--no-scan]
 #         [--advise [ADVISEMENTS]] [--advice [ADVISEMENTS]] [--no-advise]
 #         [--cache CACHE_RULES]
 #         [--dry-run] [--help]
@@ -29,6 +29,7 @@
 #   --no-provenance     Skip generating a provenance attestation (push only).
 #   --no-lint           Skip hadolint Dockerfile check.
 #   --no-test           Skip running the bats test suite.
+#   --no-smoke          Skip the built-image smoke test stage.
 #   --no-scan           Skip the Trivy vulnerability scan (gating).
 #                       Also skips advisements (stage 5) by default; pass --advise
 #                       after --no-scan to keep the advisory scans.
@@ -58,7 +59,7 @@
 #   The following env-var overrides take precedence over the defaults above but
 #   are themselves overridden by the matching CLI flag:
 #     BUILD_VERSION, BUILD_PUSH, BUILD_PLATFORM, BUILD_REGISTRY
-#     BUILD_LINT, BUILD_TEST, BUILD_SCAN, BUILD_ADVISE
+#     BUILD_LINT, BUILD_TEST, BUILD_SMOKE, BUILD_SCAN, BUILD_ADVISE
 #   ROTATE_BACKUPS_VERSION
 #     Optional: pin the rotate-backups Python package version passed as a
 #     build-arg, e.g. ROTATE_BACKUPS_VERSION=7.1 ./build
@@ -73,6 +74,7 @@
 #   1. Lint   — hadolint (Dockerfile)
 #   2. Build  — single-platform --load into local Docker daemon
 #   3. Test   — bats test suite (runs in bats/bats:1.13.0 Docker container)
+#   3b. Smoke — image-level sanity check against the built image (blocking)
 #   4. Scan   — Trivy CRITICAL/HIGH image scan (blocking; exit 1 on findings)
 #   5. Advise — multiple advisory scans (advisory only; never blocks the build)
 #              a) Grype   — full-severity scan
@@ -126,6 +128,7 @@ SBOM=true
 PROVENANCE=true
 LINT=${BUILD_LINT:-true}
 TEST=${BUILD_TEST:-true}
+SMOKE=${BUILD_SMOKE:-true}
 SCAN=${BUILD_SCAN:-true}
 ADVISE_GRYPE=false
 ADVISE_SCOUT=false
@@ -299,6 +302,7 @@ while [[ $# -gt 0 ]]; do
         --no-provenance)    PROVENANCE=false ;;
         --no-lint)          LINT=false ;;
         --no-test)          TEST=false ;;
+        --no-smoke)         SMOKE=false ;;
         --no-scan)          SCAN=false ;;
         --advise|--advice)
             _ADVISE_EXPLICIT=true
@@ -520,6 +524,24 @@ if [[ "${TEST}" == "true" ]]; then
             test/01-dockerfile.bats \
             test/02-functional.bats \
             test/03-build.bats
+fi
+
+# ---------------------------------------------------------------------------
+# Stage 3b: Smoke
+# ---------------------------------------------------------------------------
+# Runs one built-image smoke test for parity with CI.  This catches
+# packaging/runtime regressions that source-mounted bats tests cannot detect.
+if [[ "${SMOKE}" == "true" ]]; then
+    echo "==> Stage 3b: Smoke ${full_image}:${VERSION}" >&2
+
+    if [[ "${DRY_RUN}" == "true" ]]; then
+        echo "[DRY RUN] docker inspect --format '{{json .Config.Entrypoint}}' '${full_image}:${VERSION}' | grep -Fx '[\"/usr/local/bin/rotate-aws-backups\"]'" >&2
+        echo "[DRY RUN] docker run --rm '${full_image}:${VERSION}' --help > /dev/null" >&2
+    else
+        docker inspect --format '{{json .Config.Entrypoint}}' "${full_image}:${VERSION}" \
+            | grep -Fx '["/usr/local/bin/rotate-aws-backups"]'
+        docker run --rm "${full_image}:${VERSION}" --help > /dev/null
+    fi
 fi
 
 # ---------------------------------------------------------------------------

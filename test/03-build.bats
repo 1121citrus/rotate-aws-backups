@@ -215,6 +215,18 @@ setup() {
     [[ "$output" != *"Stage 3: Test"* ]]
 }
 
+@test "build defaults to Stage 3b smoke" {
+    run "${BUILD_SCRIPT}" --dry-run --no-lint --no-test --no-scan --no-advise 2>&1
+    [[ $status -eq 0 ]]
+    [[ "$output" == *"Stage 3b: Smoke"* ]]
+}
+
+@test "build --no-smoke skips Stage 3b" {
+    run "${BUILD_SCRIPT}" --no-smoke --dry-run --no-lint --no-test --no-scan --no-advise 2>&1
+    [[ $status -eq 0 ]]
+    [[ "$output" != *"Stage 3b: Smoke"* ]]
+}
+
 @test "build --no-scan skips Stage 4" {
     run "${BUILD_SCRIPT}" --no-scan --dry-run --no-lint --no-test --no-advise 2>&1
     [[ $status -eq 0 ]]

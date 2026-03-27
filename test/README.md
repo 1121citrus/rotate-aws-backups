@@ -4,6 +4,10 @@
 The `build` script runs the suite inside the official `bats/bats:latest`
 container so no local bats installation is required.
 
+CI also runs one image-level smoke test in `.github/workflows/ci.yml` after
+`build`.  That smoke test executes the built image artifact to catch
+packaging/runtime regressions not visible in source-mounted bats tests.
+
 ## Running
 
 ```sh
