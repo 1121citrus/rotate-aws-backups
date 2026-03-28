@@ -75,14 +75,22 @@ jobs:
         run: docker run --rm --entrypoint aws "$IMAGE:latest" --version
       - name: Verify jq is available
         run: docker run --rm --entrypoint jq "$IMAGE:latest" --version
-      - name: Verify rotate-backups is available
-        run: docker run --rm --entrypoint rotate-backups "$IMAGE:latest" --version
+      # rotate-backups CLI does not consistently support --version.
+      - name: Verify rotate-backups executable is available
+        run: docker run --rm --entrypoint rotate-backups "$IMAGE:latest" --help
+      - name: Verify rotate-backups package is importable
+        run: docker run --rm --entrypoint python "$IMAGE:latest" -c "import rotate_backups; print(getattr(rotate_backups, '__version__', 'installed'))"
       - name: Verify common-functions is installed
         run: docker run --rm --entrypoint test "$IMAGE:latest" -f /usr/local/include/common-functions
       - name: Verify entrypoint --help exits 0
         run: docker run --rm "$IMAGE:latest" --help
       - name: Verify entrypoint --version exits 0
         run: docker run --rm "$IMAGE:latest" --version
+      - name: Verify entrypoint version matches embedded version file
+        run: |
+          docker run --rm --entrypoint sh "$IMAGE:latest" -c '
+            test "$(/usr/local/bin/rotate-aws-backups --version)" = "$(cat /usr/local/share/rotate-aws-backups/version)"
+          '
       - name: Verify healthcheck is executable
         run: docker run --rm --entrypoint test "$IMAGE:latest" -x /usr/local/bin/healthcheck
       - name: Run image smoke test
