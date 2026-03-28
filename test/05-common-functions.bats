@@ -1,6 +1,6 @@
 #!/usr/bin/env bats
 
-# test/04-common-functions.bats — unit tests for src/include/common-functions.
+# test/05-common-functions.bats — unit tests for src/include/common-functions.
 #
 # Sources common-functions directly so each function can be exercised in
 # isolation, without going through the full rotate-aws-backups script.
