@@ -8,7 +8,7 @@
 # SYNOPSIS
 #   build [--push] [--version VERSION] [--platform PLATFORMS]
 #         [--registry REGISTRY] [--no-sbom] [--no-provenance]
-#         [--no-lint] [--no-test] [--no-smoke] [--no-scan]
+#         [--no-lint] [--no-test] [--no-smoke] [--no-coverage] [--no-scan]
 #         [--advise [ADVISEMENTS]] [--advice [ADVISEMENTS]] [--no-advise]
 #         [--cache CACHE_RULES]
 #         [--dry-run] [--help]
@@ -30,6 +30,7 @@
 #   --no-lint           Skip hadolint Dockerfile check.
 #   --no-test           Skip running the bats test suite.
 #   --no-smoke          Skip the built-image smoke test stage.
+#   --no-coverage       Skip the kcov bash coverage report (advisory only).
 #   --no-scan           Skip the Trivy vulnerability scan (gating).
 #                       Also skips advisements (stage 5) by default; pass --advise
 #                       after --no-scan to keep the advisory scans.
@@ -59,7 +60,8 @@
 #   The following env-var overrides take precedence over the defaults above but
 #   are themselves overridden by the matching CLI flag:
 #     BUILD_VERSION, BUILD_PUSH, BUILD_PLATFORM, BUILD_REGISTRY
-#     BUILD_LINT, BUILD_TEST, BUILD_SMOKE, BUILD_SCAN, BUILD_ADVISE
+#     BUILD_LINT, BUILD_TEST, BUILD_SMOKE, BUILD_COVERAGE, BUILD_SCAN,
+#     BUILD_ADVISE
 #   ROTATE_BACKUPS_VERSION
 #     Optional: pin the rotate-backups Python package version passed as a
 #     build-arg, e.g. ROTATE_BACKUPS_VERSION=7.1 ./build
@@ -74,7 +76,8 @@
 #   1. Lint   — hadolint (Dockerfile)
 #   2. Build  — single-platform --load into local Docker daemon
 #   3. Test   — bats test suite (runs in bats/bats:1.13.0 Docker container)
-#   3b. Smoke — image-level sanity check against the built image (blocking)
+#   3b. Smoke    — image-level sanity check against the built image (blocking)
+#   3c. Coverage — kcov bash line coverage report (advisory; never blocks)
 #   4. Scan   — Trivy CRITICAL/HIGH image scan (blocking; exit 1 on findings)
 #   5. Advise — multiple advisory scans (advisory only; never blocks the build)
 #              a) Grype   — full-severity scan
@@ -129,6 +132,7 @@ PROVENANCE=true
 LINT=${BUILD_LINT:-true}
 TEST=${BUILD_TEST:-true}
 SMOKE=${BUILD_SMOKE:-true}
+COVERAGE=${BUILD_COVERAGE:-true}
 SCAN=${BUILD_SCAN:-true}
 ADVISE_GRYPE=false
 ADVISE_SCOUT=false
@@ -156,6 +160,8 @@ GRYPE_TAG=v0.87.0
 DIVE_IMAGE=wagoodman/dive
 DIVE_TAG=v0.13.1
 DIVE_DOCKER_CLIENT_API=1.47
+BATS_KCOV_IMAGE=kcov/kcov
+BATS_KCOV_TAG=latest
 
 TRIVY_CACHE_VOLUME=rotate-aws-backups-trivy-cache
 GRYPE_CACHE_VOLUME=rotate-aws-backups-grype-cache
@@ -303,6 +309,7 @@ while [[ $# -gt 0 ]]; do
         --no-lint)          LINT=false ;;
         --no-test)          TEST=false ;;
         --no-smoke)         SMOKE=false ;;
+        --no-coverage)      COVERAGE=false ;;
         --no-scan)          SCAN=false ;;
         --advise|--advice)
             _ADVISE_EXPLICIT=true
@@ -541,6 +548,75 @@ if [[ "${SMOKE}" == "true" ]]; then
         docker inspect --format '{{json .Config.Entrypoint}}' "${full_image}:${VERSION}" \
             | grep -Fx '["/usr/local/bin/rotate-aws-backups"]'
         docker run --rm "${full_image}:${VERSION}" --help > /dev/null
+    fi
+fi
+
+# ---------------------------------------------------------------------------
+# Stage 3c: Coverage (kcov — advisory, never blocks)
+#
+# Reruns the bats suite through kcov to produce a per-file line-coverage
+# report for src/.  Uses a thin inline image built FROM kcov/kcov with bats
+# and jq added; Docker caches the layer after the first pull.  Requires
+# SYS_PTRACE; works on macOS Docker Desktop with the flags below.
+#
+# Note: kcov/kcov is Debian-based and ships with fixable CVEs in its system
+# packages (OpenSSL, libpam, gpgv).  This is accepted: the image is a build
+# tool that never ships as a production artifact, identical in trust category
+# to shellcheck, hadolint, and bats/bats.
+# ---------------------------------------------------------------------------
+if [[ "${TEST}" == "true" && "${COVERAGE}" == "true" ]]; then
+    echo "==> Stage 3c: Coverage" >&2
+
+    if [[ "${DRY_RUN}" == "true" ]]; then
+        echo "[DRY RUN] docker build --quiet - (FROM ${BATS_KCOV_IMAGE}:${BATS_KCOV_TAG} + bats + jq)" >&2
+        echo "[DRY RUN] docker run --rm --cap-add SYS_PTRACE --security-opt seccomp=unconfined \\" >&2
+        echo "[DRY RUN]   -v ${script_dir}:/code:ro -w /code <coverage-image> bash -c 'kcov ...'" >&2
+    else
+        # Unquoted heredoc delimiter intentional: expands BATS_KCOV_IMAGE/TAG.
+        # shellcheck disable=SC2087
+        if _coverage_image=$(docker build --quiet - <<COVERAGE_DOCKERFILE
+FROM ${BATS_KCOV_IMAGE}:${BATS_KCOV_TAG}
+RUN apt-get update -qq && apt-get install -y --no-install-recommends bats jq && rm -rf /var/lib/apt/lists/*
+COVERAGE_DOCKERFILE
+        ); then
+            docker run --rm \
+                --cap-add SYS_PTRACE \
+                --security-opt seccomp=unconfined \
+                -v "${script_dir}:/code:ro" \
+                -w /code \
+                "${_coverage_image}" \
+                bash -euo pipefail -c '
+                    kcov --include-path=/code/src \
+                         --bash-parse-files-in-dir=/code/src \
+                         /tmp/coverage \
+                         bats \
+                             test/01-dockerfile.bats \
+                             test/02-functional.bats \
+                             test/03-build.bats \
+                         >/dev/null 2>&1 || true
+                    cov=$(find /tmp/coverage -maxdepth 2 -name coverage.json \
+                              -not -path "*/kcov-merged/*" 2>/dev/null | head -1)
+                    [[ -n "${cov}" ]] \
+                        || { echo "    No coverage data" >&2; exit 0; }
+                    jq -r "
+                      .files[] |
+                      \"    \" +
+                      (.file | ltrimstr(\"/code/src/\")) +
+                      \": \" + .percent_covered +
+                      \"% (\" + .covered_lines +
+                      \"/\" + .total_lines + \" lines)\"
+                    " "${cov}"
+                    jq -r "
+                      \"    Overall: \" +
+                      (([.files[].covered_lines | tonumber] | add) | tostring) +
+                      \"/\" +
+                      (([.files[].total_lines | tonumber] | add) | tostring) +
+                      \" lines\"
+                    " "${cov}"
+                ' >&2 || echo "    Coverage run failed (advisory only)" >&2
+        else
+            echo "    Coverage image build failed (advisory only)" >&2
+        fi
     fi
 fi
 
