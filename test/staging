@@ -96,6 +96,8 @@ _SCAN="${STAGING_SCAN:-true}"
 TRIVY_IMAGE=aquasec/trivy
 TRIVY_TAG=0.62.1
 
+TRIVY_CACHE_VOLUME=rotate-aws-backups-trivy-cache
+
 show_help() {
     # Extract the header comment from SYNOPSIS through EXAMPLES (inclusive).
     sed -n '/^# SYNOPSIS/,/^set -/p' "$0" \

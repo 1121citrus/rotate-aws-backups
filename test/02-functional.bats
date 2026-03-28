@@ -6,6 +6,10 @@ setup() {
   repo_root=$(cd "$(dirname "$BATS_TEST_FILENAME")/.." && pwd)
   TEST_TMPDIR=$(mktemp -d)
   export TEST_TMPDIR
+  # Keep script-level env-file reads/writes inside the per-test temp dir.
+  # Without this, scheduler tests can mutate ~/.env and leak DRYRUN/BUCKET
+  # into later tests.
+  export ENV="${TEST_TMPDIR}/.env"
   mkdir -p "${TEST_TMPDIR}/bin"
   cp "${repo_root}/test/bin/aws" "${TEST_TMPDIR}/bin/aws"
   cp "${repo_root}/test/bin/rotate-backups" "${TEST_TMPDIR}/bin/rotate-backups"
@@ -85,6 +89,28 @@ teardown() {
     INCLUDE_DIR="${INCLUDE_DIR}" \
     bash "${repo_root}/src/rotate-aws-backups"
   [ "$status" -ne 0 ]
+}
+
+@test "scheduler pins SHELL=/bin/sh in crontab" {
+  # Mock supercronic so the test can inspect the generated crontab.
+  cat > "${TEST_TMPDIR}/bin/supercronic" << 'EOF'
+#!/usr/bin/env bash
+set -o errexit -o nounset -o pipefail
+cat "$1"
+EOF
+  chmod +x "${TEST_TMPDIR}/bin/supercronic"
+
+  run env \
+    SHELL="/bin/zsh" \
+    BUCKET="test-bucket" \
+    BUCKET_LIST="test-bucket" \
+    CRON_EXPRESSION="* * * * *" \
+    INCLUDE_DIR="${INCLUDE_DIR}" \
+    bash "${repo_root}/src/rotate-aws-backups"
+
+  [ "$status" -eq 0 ]
+  [[ "$output" == *"SHELL=/bin/sh"* ]]
+  [[ "$output" == *"* * * * * /usr/local/bin/rotate-aws-backups"* ]]
 }
 
 # ---------------------------------------------------------------------------

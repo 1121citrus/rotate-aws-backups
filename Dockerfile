@@ -20,6 +20,8 @@ ARG PYTHON_VERSION=3.12
 ARG ALPINE_VERSION=3.22
 ARG ROTATE_BACKUPS_VERSION=
 ARG VERSION=dev
+# renovate: datasource=github-releases depName=aptible/supercronic
+ARG SUPERCRONIC_VERSION=v0.2.44
 
 FROM python:${PYTHON_VERSION}-alpine${ALPINE_VERSION}
 
@@ -32,6 +34,8 @@ ENV ALPINE_VERSION=${ALPINE_VERSION}
 
 ARG ROTATE_BACKUPS_VERSION
 ENV ROTATE_BACKUPS_VERSION=${ROTATE_BACKUPS_VERSION}
+
+ARG SUPERCRONIC_VERSION
 
 ARG VERSION
 ENV ROTATE_AWS_BACKUPS_VERSION=${VERSION}
@@ -51,7 +55,7 @@ LABEL org.opencontainers.image.title="rotate-aws-backups" \
       org.opencontainers.image.created="${BUILD_DATE}"
 
 COPY requirements.txt /tmp/
-# hadolint ignore=DL3013,DL3018
+# hadolint ignore=DL3013,DL3018,DL3020,DL4006
 RUN echo "[INFO] start installing rotate-aws-backups" \
         && apk update \
         && apk upgrade --no-cache --no-interactive \
@@ -60,6 +64,12 @@ RUN echo "[INFO] start installing rotate-aws-backups" \
                'bash>5' \
                'coreutils>9' \
                'jq>1' \
+        && echo "[INFO] installing supercronic ${SUPERCRONIC_VERSION}" \
+        && SUPERCRONIC_ARCH="$(uname -m \
+               | sed 's/x86_64/amd64/;s/aarch64/arm64/')" \
+        && wget -qO /usr/local/bin/supercronic \
+               "https://github.com/aptible/supercronic/releases/download/${SUPERCRONIC_VERSION}/supercronic-linux-${SUPERCRONIC_ARCH}" \
+        && chmod 0755 /usr/local/bin/supercronic \
         && echo "[INFO] upgrading pip" \
         && pip install --no-cache-dir --upgrade pip \
         && echo "[INFO] installing rotate-backups (pip)" \

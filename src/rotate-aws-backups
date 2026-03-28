@@ -26,8 +26,9 @@
 #   Scheduler mode is triggered by any of: --cron, --cron-expression,
 #   --hourly, --daily, --weekly, --monthly, --yearly, or the
 #   CRON_EXPRESSION environment variable. In scheduler mode a crontab entry is
-#   installed and crond is exec'd; output and exit status are those of crond.
-#   The crond-spawned jobs run in CLI mode (no scheduling trigger).
+#   installed and supercronic is exec'd; output and exit status are those of
+#   supercronic. The supercronic-spawned jobs run in CLI mode (no scheduling
+#   trigger).
 #
 #   Without any scheduling trigger the command runs one rotation pass
 #   synchronously and exits; output and exit status are those of
@@ -350,10 +351,10 @@ function rotate-aws-backups() {
 }
 
 function run_scheduler() {
-    # Enter scheduler mode: write env file, install crontab, exec crond.
+    # Enter scheduler mode: write env file, install crontab, exec supercronic.
     # CRON_EXPRESSION is intentionally omitted from the written env file so
-    # that the crond-invoked rotate-aws-backups runs in CLI mode rather than
-    # re-entering scheduler mode.
+    # that the supercronic-invoked rotate-aws-backups runs in CLI mode rather
+    # than re-entering scheduler mode.
     # Usage:
     #   run_scheduler CRON_EXPR
     # Arguments:
@@ -366,7 +367,7 @@ function run_scheduler() {
     [[ -n "${BUCKET_LIST}" ]] || \
         error "need to specify either BUCKET or BUCKET_LIST to be rotated"
 
-    # Write the env file consumed by crond-invoked jobs.
+    # Write the env file consumed by supercronic-invoked jobs.
     # Use printf '%q' for every value so that values containing quotes,
     # parentheses, braces, or other shell-special characters are safely escaped.
     # CRON_EXPRESSION is explicitly unset so that cron jobs sourcing this file
@@ -409,12 +410,19 @@ function run_scheduler() {
     info "installing cron entry: ${cron_expr} ${cmd}"
     local _crontab
     _crontab="/var/spool/cron/crontabs/$(id -un)"
-    printf '%s %s >> /proc/1/fd/1 2>&1\n' "${cron_expr}" "${cmd}" > "${_crontab}"
+    {
+        # Pin shell for supercronic jobs so inherited SHELL values from
+        # runtime environments (for example /bin/zsh on macOS) cannot break
+        # command execution inside the container.
+        printf 'SHELL=/bin/sh\n'
+        printf 'PATH=%s\n' "${PATH}"
+        printf '%s %s\n' "${cron_expr}" "${cmd}"
+    } > "${_crontab}"
     chmod 0644 "${_crontab}"
     info "crontab: $(cat "${_crontab}")"
 
-    info "handing off to crond"
-    exec crond -l 2 -f
+    info "handing off to supercronic"
+    exec supercronic "${_crontab}"
 }
 
 function show_help() {
@@ -428,7 +436,8 @@ retention policy engine.
 Scheduler mode is triggered by any scheduling flag (--cron,
 --cron-expression, --hourly, --daily, --weekly, --monthly, --yearly) or the
 CRON_EXPRESSION environment variable. In scheduler mode a crontab entry is
-installed and crond is exec'd; output and exit status are those of crond.
+installed and supercronic is exec'd; output and exit status are those of
+supercronic.
 
 Without any scheduling trigger the command runs one rotation pass
 synchronously and exits.
@@ -437,7 +446,7 @@ Options:
   -h,--help                        Display this help text
   -v,--version                     Display command version
 
-  Scheduling (any one triggers async/periodic execution via crond):
+  Scheduling (any one triggers async/periodic execution via supercronic):
   -c,--cron                        Enter scheduler mode using CRON_EXPRESSION
                                    (default: @daily)
   --cron-expression EXPR           Scheduler mode; use EXPR as the schedule
@@ -669,7 +678,7 @@ fi
 # ---------------------------------------------------------------------------
 
 if [[ "${CRON_MODE}" == "true" ]]; then
-    # run_scheduler writes the env file and execs crond — never returns.
+    # run_scheduler writes the env file and execs supercronic — never returns.
     run_scheduler "${CRON_EXPRESSION}"
 fi
 
