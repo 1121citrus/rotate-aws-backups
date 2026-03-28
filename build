@@ -531,7 +531,8 @@ if [[ "${TEST}" == "true" ]]; then
             test/01-dockerfile.bats \
             test/02-functional.bats \
             test/03-build.bats \
-            test/04-common-functions.bats
+            test/04-image-metadata.bats \
+            test/05-common-functions.bats
 fi
 
 # ---------------------------------------------------------------------------
@@ -594,7 +595,8 @@ COVERAGE_DOCKERFILE
                              test/01-dockerfile.bats \
                              test/02-functional.bats \
                              test/03-build.bats \
-                             test/04-common-functions.bats \
+                             test/04-image-metadata.bats \
+                             test/05-common-functions.bats \
                          >/dev/null 2>&1 || true
                     cov=$(find /tmp/coverage -maxdepth 2 -name coverage.json \
                               -not -path "*/kcov-merged/*" 2>/dev/null | head -1)
