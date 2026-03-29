@@ -160,7 +160,7 @@ GRYPE_TAG=v0.87.0
 DIVE_IMAGE=wagoodman/dive
 DIVE_TAG=v0.13.1
 DIVE_DOCKER_CLIENT_API=1.47
-BATS_KCOV_IMAGE=kcov/kcov
+BATS_KCOV_IMAGE=1121citrus/bats-kcov
 BATS_KCOV_TAG=latest
 
 TRIVY_CACHE_VOLUME=rotate-aws-backups-trivy-cache
@@ -558,71 +558,30 @@ fi
 # Stage 3c: Coverage (kcov — advisory, never blocks)
 #
 # Reruns the bats suite through kcov to produce a per-file line-coverage
-# report for src/.  Uses a thin inline image built FROM kcov/kcov with bats
-# and jq added; Docker caches the layer after the first pull.  Requires
-# SYS_PTRACE; works on macOS Docker Desktop with the flags below.
-#
-# Note: kcov/kcov is Debian-based and ships with fixable CVEs in its system
-# packages (OpenSSL, libpam, gpgv).  This is accepted: the image is a build
-# tool that never ships as a production artifact, identical in trust category
-# to shellcheck, hadolint, and bats/bats.
+# report for src/.  Uses 1121citrus/bats-kcov (kcov + bats + jq pre-bundled).
+# Requires SYS_PTRACE; works on macOS Docker Desktop with the flags below.
 # ---------------------------------------------------------------------------
 if [[ "${TEST}" == "true" && "${COVERAGE}" == "true" ]]; then
     echo "==> Stage 3c: Coverage" >&2
 
     if [[ "${DRY_RUN}" == "true" ]]; then
-        echo "[DRY RUN] docker build --quiet - (FROM ${BATS_KCOV_IMAGE}:${BATS_KCOV_TAG} + bats + jq)" >&2
         echo "[DRY RUN] docker run --rm --cap-add SYS_PTRACE --security-opt seccomp=unconfined \\" >&2
-        echo "[DRY RUN]   -v ${script_dir}:/code:ro -w /code <coverage-image> bash -c 'kcov ...'" >&2
+        echo "[DRY RUN]   -v ${script_dir}:/code:ro -w /code ${BATS_KCOV_IMAGE}:${BATS_KCOV_TAG} bats-coverage <test files>" >&2
     else
-        # Unquoted heredoc delimiter intentional: expands BATS_KCOV_IMAGE/TAG.
-        # shellcheck disable=SC2087
-        if _coverage_image=$(docker build --quiet - <<COVERAGE_DOCKERFILE
-FROM ${BATS_KCOV_IMAGE}:${BATS_KCOV_TAG}
-RUN apt-get update -qq && apt-get install -y --no-install-recommends bats jq && rm -rf /var/lib/apt/lists/*
-COVERAGE_DOCKERFILE
-        ); then
-            docker run --rm \
-                --cap-add SYS_PTRACE \
-                --security-opt seccomp=unconfined \
-                -v "${script_dir}:/code:ro" \
-                -w /code \
-                "${_coverage_image}" \
-                bash -euo pipefail -c '
-                    kcov --include-path=/code/src \
-                         --bash-parse-files-in-dir=/code/src \
-                         /tmp/coverage \
-                         bats \
-                             test/01-dockerfile.bats \
-                             test/02-functional.bats \
-                             test/03-build.bats \
-                             test/04-image-metadata.bats \
-                             test/05-common-functions.bats \
-                             test/06-rotate-aws-backups.bats \
-                         >/dev/null 2>&1 || true
-                    cov=$(find /tmp/coverage -maxdepth 2 -name coverage.json \
-                              -not -path "*/kcov-merged/*" 2>/dev/null | head -1)
-                    [[ -n "${cov}" ]] \
-                        || { echo "    No coverage data" >&2; exit 0; }
-                    jq -r "
-                      .files[] |
-                      \"    \" +
-                      (.file | ltrimstr(\"/code/src/\")) +
-                      \": \" + .percent_covered +
-                      \"% (\" + .covered_lines +
-                      \"/\" + .total_lines + \" lines)\"
-                    " "${cov}"
-                    jq -r "
-                      \"    Overall: \" +
-                      (([.files[].covered_lines | tonumber] | add) | tostring) +
-                      \"/\" +
-                      (([.files[].total_lines | tonumber] | add) | tostring) +
-                      \" lines\"
-                    " "${cov}"
-                ' >&2 || echo "    Coverage run failed (advisory only)" >&2
-        else
-            echo "    Coverage image build failed (advisory only)" >&2
-        fi
+        docker run --rm \
+            --cap-add SYS_PTRACE \
+            --security-opt seccomp=unconfined \
+            -v "${script_dir}:/code:ro" \
+            -w /code \
+            "${BATS_KCOV_IMAGE}:${BATS_KCOV_TAG}" \
+            bats-coverage \
+                test/01-dockerfile.bats \
+                test/02-functional.bats \
+                test/03-build.bats \
+                test/04-image-metadata.bats \
+                test/05-common-functions.bats \
+                test/06-rotate-aws-backups.bats \
+            >&2 || echo "    Coverage run failed (advisory only)" >&2
     fi
 fi
 
