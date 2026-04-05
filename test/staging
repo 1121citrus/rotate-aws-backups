@@ -532,12 +532,12 @@ run_tests() {
         test_staging_help
         test_staging_version
         test_staging_unknown_option
+        test_staging_trivy_scan
         test_staging_no_bucket_cli_mode
         test_staging_cron_no_bucket
         test_staging_cli_dryrun
         test_staging_cron_fires
         test_staging_rotation_e2e
-        test_staging_trivy_scan
     )
 
     # Apply --test and --skip-e2e filters.

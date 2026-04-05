@@ -410,14 +410,7 @@ function run_scheduler() {
     info "installing cron entry: ${cron_expr} ${cmd}"
     local _crontab
     _crontab="/var/spool/cron/crontabs/$(id -un)"
-    {
-        # Pin shell for supercronic jobs so inherited SHELL values from
-        # runtime environments (for example /bin/zsh on macOS) cannot break
-        # command execution inside the container.
-        printf 'SHELL=/bin/sh\n'
-        printf 'PATH=%s\n' "${PATH}"
-        printf '%s %s\n' "${cron_expr}" "${cmd}"
-    } > "${_crontab}"
+    printf 'SHELL=/bin/sh\n%s %s\n' "${cron_expr}" "${cmd}" > "${_crontab}"
     chmod 0644 "${_crontab}"
     info "crontab: $(cat "${_crontab}")"
 
