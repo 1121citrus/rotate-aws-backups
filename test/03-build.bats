@@ -99,12 +99,25 @@ setup() {
     [[ "$output" == *"Unknown advisement"* ]]
 }
 
+@test "build --advise coverage enables coverage advisement" {
+    run "${BUILD_SCRIPT}" --advise coverage --dry-run --no-lint --no-scan  2>&1
+    [[ $status -eq 0 ]]
+    [[ "$output" == *"Stage 5d: Coverage"* ]]
+}
+
+@test "build --no-coverage skips Stage 5d" {
+    run "${BUILD_SCRIPT}" --no-coverage --dry-run --no-lint --no-scan --no-advise 2>&1
+    [[ $status -eq 0 ]]
+    [[ "$output" != *"Stage 5d: Coverage"* ]]
+}
+
 @test "build --advice none disables all advisements" {
     run "${BUILD_SCRIPT}" --advice none --dry-run --no-lint --no-test --no-scan 2>&1
     [[ $status -eq 0 ]]
     [[ "$output" != *"Stage 5a"* ]]
     [[ "$output" != *"Stage 5b"* ]]
     [[ "$output" != *"Stage 5c"* ]]
+    [[ "$output" != *"Stage 5d"* ]]
 }
 
 @test "build --no-advise disables all advisements" {
@@ -113,6 +126,7 @@ setup() {
     [[ "$output" != *"Stage 5a"* ]]
     [[ "$output" != *"Stage 5b"* ]]
     [[ "$output" != *"Stage 5c"* ]]
+    [[ "$output" != *"Stage 5d"* ]]
 }
 
 @test "build --advise none disables all advisements" {
@@ -121,6 +135,7 @@ setup() {
     [[ "$output" != *"Stage 5a"* ]]
     [[ "$output" != *"Stage 5b"* ]]
     [[ "$output" != *"Stage 5c"* ]]
+    [[ "$output" != *"Stage 5d"* ]]
 }
 
 @test "build --advise NONE disables all advisements" {
@@ -129,6 +144,7 @@ setup() {
     [[ "$output" != *"Stage 5a"* ]]
     [[ "$output" != *"Stage 5b"* ]]
     [[ "$output" != *"Stage 5c"* ]]
+    [[ "$output" != *"Stage 5d"* ]]
 }
 
 @test "build defaults to no advisory scans" {
@@ -137,6 +153,7 @@ setup() {
     [[ "$output" != *"Stage 5a"* ]]
     [[ "$output" != *"Stage 5b"* ]]
     [[ "$output" != *"Stage 5c"* ]]
+    [[ "$output" != *"Stage 5d"* ]]
 }
 
 # ============================================================================
@@ -225,18 +242,6 @@ setup() {
     run "${BUILD_SCRIPT}" --no-smoke --dry-run --no-lint --no-test --no-scan --no-advise 2>&1
     [[ $status -eq 0 ]]
     [[ "$output" != *"Stage 3b: Smoke"* ]]
-}
-
-@test "build defaults to Stage 3c coverage" {
-    run "${BUILD_SCRIPT}" --dry-run --no-lint --no-scan --no-advise 2>&1
-    [[ $status -eq 0 ]]
-    [[ "$output" == *"Stage 3c: Coverage"* ]]
-}
-
-@test "build --no-coverage skips Stage 3c" {
-    run "${BUILD_SCRIPT}" --no-coverage --dry-run --no-lint --no-scan --no-advise 2>&1
-    [[ $status -eq 0 ]]
-    [[ "$output" != *"Stage 3c: Coverage"* ]]
 }
 
 @test "build --no-scan skips Stage 4" {
