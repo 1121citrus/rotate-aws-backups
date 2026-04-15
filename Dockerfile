@@ -23,6 +23,17 @@ ARG VERSION=dev
 # renovate: datasource=github-releases depName=aptible/supercronic
 ARG SUPERCRONIC_VERSION=v0.2.44
 
+# ── Supercronic build stage ────────────────────────────────────────────────
+# Builds supercronic from source with Go 1.26.2, which patches:
+#   CVE-2026-32280 (crypto/x509 DoS) HIGH
+#   CVE-2026-32282 (os.Root symlink traversal) MEDIUM
+#   CVE-2026-33810 (crypto/x509 cert validation bypass) HIGH
+# Remove this stage and restore the wget installation once an upstream
+# supercronic release ships with Go >= 1.26.2 (or >= 1.25.9).
+FROM golang:1.26.2-alpine AS supercronic-builder
+ARG SUPERCRONIC_VERSION=v0.2.44
+RUN CGO_ENABLED=0 go install github.com/aptible/supercronic@${SUPERCRONIC_VERSION}
+
 FROM python:${PYTHON_VERSION}-alpine${ALPINE_VERSION}
 
 # Re-declare build args after FROM so they are visible in the build stage.
@@ -54,6 +65,10 @@ LABEL org.opencontainers.image.title="rotate-aws-backups" \
       org.opencontainers.image.revision="${GIT_COMMIT}" \
       org.opencontainers.image.created="${BUILD_DATE}"
 
+# Install supercronic binary compiled with Go 1.26.2 (patches CVE-2026-32280,
+# CVE-2026-32282, CVE-2026-33810 via Go stdlib upgrade).
+COPY --from=supercronic-builder --chmod=755 /go/bin/supercronic /usr/local/bin/
+
 COPY requirements.txt /tmp/
 # hadolint ignore=DL3013,DL3018,DL3020,DL4006
 RUN echo "[INFO] start installing rotate-aws-backups" \
@@ -64,12 +79,6 @@ RUN echo "[INFO] start installing rotate-aws-backups" \
                'bash>5' \
                'coreutils>9' \
                'jq>1' \
-        && echo "[INFO] installing supercronic ${SUPERCRONIC_VERSION}" \
-        && SUPERCRONIC_ARCH="$(uname -m \
-               | sed 's/x86_64/amd64/;s/aarch64/arm64/')" \
-        && wget -qO /usr/local/bin/supercronic \
-               "https://github.com/aptible/supercronic/releases/download/${SUPERCRONIC_VERSION}/supercronic-linux-${SUPERCRONIC_ARCH}" \
-        && chmod 0755 /usr/local/bin/supercronic \
         && echo "[INFO] upgrading pip" \
         && pip install --no-cache-dir --upgrade pip \
         && echo "[INFO] installing rotate-backups (pip)" \
