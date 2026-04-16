@@ -122,6 +122,9 @@ rotate-aws-backups [options]
   --aws-config FILE                AWS config file
                                    (env: AWS_CONFIG_FILE;
                                    default: /run/secrets/aws-config)
+  --aws-credentials FILE           AWS credentials file
+                                   (env: AWS_SHARED_CREDENTIALS_FILE;
+                                   default: /run/secrets/aws-credentials)
   --aws-extra-args ARGS            Extra args appended to every aws call
                                    (env: AWS_EXTRA_ARGS)
   --rotate-backups-extra-args ARGS Extra args appended to every
@@ -227,10 +230,13 @@ services:
       - /etc/localtime:/etc/localtime:ro
     secrets:
       - aws-config
+      - aws-credentials
 
 secrets:
   aws-config:
     file: ./aws-config
+  aws-credentials:
+    file: ./aws-credentials
 ```
 
 ## Configuration
@@ -241,6 +247,7 @@ See [Options](#options) for the flag names.
 | Environment variable | Default | Possible values | Notes |
 | --- | --- | --- | --- |
 | `AWS_CONFIG_FILE` | `/run/secrets/aws-config` | path | AWS configuration file (via [secret](https://docs.docker.com/compose/how-tos/use-secrets/) or [bind](https://docs.docker.com/engine/storage/bind-mounts/)). |
+| `AWS_SHARED_CREDENTIALS_FILE` | `/run/secrets/aws-credentials` | path | AWS credentials file (via [secret](https://docs.docker.com/compose/how-tos/use-secrets/) or [bind](https://docs.docker.com/engine/storage/bind-mounts/)). |
 | `AWS_EXTRA_ARGS` | _(none)_ | any string | Additional arguments appended to every `aws` invocation. |
 | `BUCKET` | _(none)_ | any string | Single AWS S3 bucket to rotate. Mutually usable with `BUCKET_LIST`. |
 | `BUCKET_LIST` | _(value of `BUCKET`)_ | space-separated list | One or more AWS S3 buckets to rotate. |
@@ -259,12 +266,19 @@ See [Options](#options) for the flag names.
 | `YEARLY` | `always` | integer or `always` | Number of yearly backups to preserve. |
 | `YES` | `false` | `true`, `false` | When `true`, skips the interactive confirmation prompt that fires in CLI mode when `DRYRUN=false` and stdin is a tty. Equivalent to `--yes`. |
 
-AWS credentials are supplied via the `aws-config` file pointed to by
-`AWS_CONFIG_FILE`. In Docker Compose deployments this is typically mounted as
-a [secret](https://docs.docker.com/compose/how-tos/use-secrets/) or a
-[bind mount](https://docs.docker.com/engine/storage/bind-mounts/). The file
-format is the standard
-[AWS CLI configuration/credentials file](https://docs.aws.amazon.com/cli/latest/userguide/cli-configure-files.html).
+AWS credentials are supplied via one or both of:
+
+- `aws-config` (pointed to by `AWS_CONFIG_FILE`) — the standard
+  [AWS CLI configuration file](https://docs.aws.amazon.com/cli/latest/userguide/cli-configure-files.html)
+  containing profiles and region settings.
+- `aws-credentials` (pointed to by `AWS_SHARED_CREDENTIALS_FILE`) — the
+  standard
+  [AWS CLI credentials file](https://docs.aws.amazon.com/cli/latest/userguide/cli-configure-files.html)
+  containing `aws_access_key_id` and `aws_secret_access_key`.
+
+In Docker Compose deployments both files are typically mounted as
+[secrets](https://docs.docker.com/compose/how-tos/use-secrets/) or
+[bind mounts](https://docs.docker.com/engine/storage/bind-mounts/).
 
 ## Building
 

@@ -74,6 +74,11 @@ teardown() {
     [ "$status" -ne 0 ]
 }
 
+@test "--aws-credentials requires an argument" {
+    run bash "${RAB}" --aws-credentials
+    [ "$status" -ne 0 ]
+}
+
 @test "--aws-extra-args requires an argument" {
     run bash "${RAB}" --aws-extra-args
     [ "$status" -ne 0 ]
@@ -221,6 +226,13 @@ MOCKEOF
 @test "--aws-config FILE sets the AWS config file path" {
     # /dev/null is always readable; the mock aws ignores AWS_CONFIG_FILE.
     run bash "${RAB}" --aws-config /dev/null
+    [ "$status" -eq 0 ]
+}
+
+@test "--aws-credentials FILE sets the AWS credentials file path" {
+    # /dev/null is always readable; the mock aws ignores
+    # AWS_SHARED_CREDENTIALS_FILE.
+    run bash "${RAB}" --aws-credentials /dev/null
     [ "$status" -eq 0 ]
 }
 

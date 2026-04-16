@@ -88,6 +88,9 @@
 #   --aws-config FILE                AWS config file
 #                                    (env: AWS_CONFIG_FILE;
 #                                    default: /run/secrets/aws-config)
+#   --aws-credentials FILE           AWS credentials file
+#                                    (env: AWS_SHARED_CREDENTIALS_FILE;
+#                                    default: /run/secrets/aws-credentials)
 #   --aws-extra-args ARGS            Extra args appended to every aws call
 #                                    (env: AWS_EXTRA_ARGS)
 #   --rotate-backups-extra-args ARGS Extra args appended to every
@@ -95,8 +98,9 @@
 #                                    (env: ROTATE_BACKUPS_EXTRA_ARGS)
 #
 # ENVIRONMENT
-#   AWS_CONFIG_FILE          AWS configuration file
-#   AWS_EXTRA_ARGS           Additional aws CLI arguments
+#   AWS_CONFIG_FILE              AWS configuration file
+#   AWS_SHARED_CREDENTIALS_FILE  AWS credentials file
+#   AWS_EXTRA_ARGS               Additional aws CLI arguments
 #   BUCKET                   Single S3 bucket to rotate
 #   BUCKET_LIST              Space-separated list of buckets
 #   CRON_EXPRESSION          Schedule for --cron mode (default: @daily)
@@ -380,8 +384,9 @@ function run_scheduler() {
     local _ts_default
     _ts_default='(?P<year>\d{4})(?P<month>\d{2})(?P<day>\d{2})[Tt](?P<hour>\d{2})(?P<minute>\d{2})(?P<second>\d{2})'
     {
-        printf 'export AWS_CONFIG_FILE=%q\n'           "${AWS_CONFIG_FILE}"
-        printf 'export AWS_EXTRA_ARGS=%q\n'            "${AWS_EXTRA_ARGS}"
+        printf 'export AWS_CONFIG_FILE=%q\n'              "${AWS_CONFIG_FILE}"
+        printf 'export AWS_SHARED_CREDENTIALS_FILE=%q\n' "${AWS_SHARED_CREDENTIALS_FILE}"
+        printf 'export AWS_EXTRA_ARGS=%q\n'               "${AWS_EXTRA_ARGS}"
         printf 'export BUCKET=%q\n'                    "${BUCKET}"
         printf 'export BUCKET_LIST=%q\n'               "${BUCKET_LIST}"
         printf 'export DAILY=%q\n'                     "${DAILY}"
@@ -484,6 +489,9 @@ Options:
   --aws-config FILE                AWS config file
                                    (env: AWS_CONFIG_FILE;
                                    default: /run/secrets/aws-config)
+  --aws-credentials FILE           AWS credentials file
+                                   (env: AWS_SHARED_CREDENTIALS_FILE;
+                                   default: /run/secrets/aws-credentials)
   --aws-extra-args ARGS            Extra args appended to every aws call
                                    (env: AWS_EXTRA_ARGS)
   --rotate-backups-extra-args ARGS Extra args appended to every
@@ -530,6 +538,7 @@ function show_version() {
 export BUCKET=${BUCKET:=}
 export BUCKET_LIST="${BUCKET_LIST:=${BUCKET}}"
 export AWS_CONFIG_FILE=${AWS_CONFIG_FILE:=/run/secrets/aws-config}
+export AWS_SHARED_CREDENTIALS_FILE=${AWS_SHARED_CREDENTIALS_FILE:=/run/secrets/aws-credentials}
 export AWS_EXTRA_ARGS="${AWS_EXTRA_ARGS:=}"
 # Capture whether CRON_EXPRESSION was set in the environment before applying
 # the default — a pre-set CRON_EXPRESSION implies scheduler mode.
@@ -587,6 +596,10 @@ while [[ $# -gt 0 ]]; do
         --aws-config)
             [[ $# -ge 2 ]] || error "option '${1}' requires an argument"
             AWS_CONFIG_FILE="${2}"; shift
+            ;;
+        --aws-credentials)
+            [[ $# -ge 2 ]] || error "option '${1}' requires an argument"
+            AWS_SHARED_CREDENTIALS_FILE="${2}"; shift
             ;;
         --aws-extra-args)
             [[ $# -ge 2 ]] || error "option '${1}' requires an argument"

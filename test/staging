@@ -14,7 +14,7 @@
 #     s3:ListBucket       on arn:aws:s3:::${BUCKET}
 #     s3:ListBucket       on arn:aws:s3:::${BUCKET}/*
 #   End-to-end correctness test (test_staging_rotation_e2e):
-#     All of the above PLUS on arn:aws:s3:::test.staging.backups.rotate-aws-backups-*:
+#     All of the above PLUS on arn:aws:s3:::test.rotate-aws-backups-*:
 #     s3:CreateBucket, s3:DeleteBucket
 #     s3:PutObject, s3:GetObject, s3:ListBucket, s3:DeleteObject
 #
@@ -29,6 +29,9 @@
 #   --aws-config FILE         AWS config file path
 #                             (env: AWS_CONFIG_FILE;
 #                             default: ~/.secrets/aws-config)
+#   --aws-credentials FILE    AWS credentials file path
+#                             (env: AWS_CREDENTIALS_FILE;
+#                             default: ~/.secrets/aws-credentials)
 #   --dryrun                  Enable dry-run for production bucket tests
 #                             (env: DRYRUN; default: true)
 #   --no-dryrun               Disable dry-run for production bucket tests
@@ -44,9 +47,10 @@
 #   IMAGE              Docker image to test
 #   BUCKET             S3 bucket to rotate (single bucket)
 #   BUCKET_LIST        Space-separated list of buckets (default: BUCKET)
-#   AWS_CONFIG_FILE    Path to AWS config file
+#   AWS_CONFIG_FILE      Path to AWS config file
+#   AWS_CREDENTIALS_FILE Path to AWS credentials file
 #   AWS_ACCESS_KEY_ID / AWS_SECRET_ACCESS_KEY
-#                      Inline AWS credentials (alternative to AWS_CONFIG_FILE)
+#                        Inline AWS credentials (alternative to config/credentials files)
 #   DRYRUN             true = dry-run for production bucket tests (default)
 #                      false = live deletions (test/staging buckets only)
 #   STAGING_SCAN       true/false — controls Trivy scan (default: true)
@@ -86,6 +90,7 @@ IMAGE="${IMAGE:-}"
 BUCKET="${BUCKET:-}"
 BUCKET_LIST="${BUCKET_LIST:-}"
 AWS_CONFIG_FILE="${AWS_CONFIG_FILE:-}"
+AWS_CREDENTIALS_FILE="${AWS_CREDENTIALS_FILE:-}"
 DRYRUN="${DRYRUN:-true}"
 _YES=false
 _SKIP_E2E=false
@@ -147,34 +152,71 @@ setup() {
     # Resolve the AWS config file path once so each test does not re-derive it.
     _aws_cfg="${AWS_CONFIG_FILE:-${HOME}/.secrets/aws-config}"
 
+    # The image now runs as a non-root user (UID 10001).  A mode-600 config
+    # file owned by the host user is unreadable by that UID inside the
+    # container.  Create a world-readable temp copy for the duration of the
+    # test run — the temp file is removed on EXIT below.
+    _aws_cfg_mount="${_aws_cfg}"
+    if [[ -r "${_aws_cfg}" ]]; then
+        _aws_cfg_mount=$(mktemp /tmp/aws-config-staging-XXXXXX)
+        cp "${_aws_cfg}" "${_aws_cfg_mount}"
+        chmod 0644 "${_aws_cfg_mount}"
+    fi
+    export _aws_cfg_mount
+
+    # Resolve the AWS credentials file; create a world-readable temp copy for
+    # the non-root container user (UID 10001), same as the config file above.
+    _aws_creds="${AWS_CREDENTIALS_FILE:-${HOME}/.secrets/aws-credentials}"
+    _aws_creds_mount="${_aws_creds}"
+    if [[ -r "${_aws_creds}" ]]; then
+        _aws_creds_mount=$(mktemp /tmp/aws-credentials-staging-XXXXXX)
+        cp "${_aws_creds}" "${_aws_creds_mount}"
+        chmod 0644 "${_aws_creds_mount}"
+    fi
+    export _aws_creds _aws_creds_mount
+
     # Run rotate-aws-backups with staging credentials and the given CLI args.
     # No stubs: the real AWS CLI and real S3 bucket are used.
     # stderr is merged with stdout so callers capture all log output.
     run_rotate_aws_backups() {
-        local aws_mounts=()
-        [[ -r "${_aws_cfg}" ]] && \
-            aws_mounts+=(-v "${_aws_cfg}:/run/secrets/aws-config:ro")
+        local aws_mounts=() aws_env=()
+        if [[ -r "${_aws_cfg_mount}" ]]; then
+            aws_mounts+=(-v "${_aws_cfg_mount}:/run/secrets/aws-config:ro")
+            aws_env+=(-e "AWS_CONFIG_FILE=/run/secrets/aws-config")
+        fi
+        if [[ -r "${_aws_creds_mount}" ]]; then
+            aws_mounts+=(-v "${_aws_creds_mount}:/run/secrets/aws-credentials:ro")
+            aws_env+=(-e "AWS_SHARED_CREDENTIALS_FILE=/run/secrets/aws-credentials")
+        fi
         # shellcheck disable=SC2086
         docker run --rm ${DOCKER_RUN_ARGS:-} \
             -e "BUCKET=${BUCKET:-}" \
             -e "BUCKET_LIST=${BUCKET_LIST:-}" \
             -e "DRYRUN=${DRYRUN:-true}" \
             "${aws_mounts[@]}" \
+            "${aws_env[@]}" \
             "${IMAGE}" "$@" 2>&1
     }
 
     # Start the full service container (scheduler mode) detached.
     # Prints the container ID to stdout; caller is responsible for stop and rm.
     run_service_detached() {
-        local aws_mounts=()
-        [[ -r "${_aws_cfg}" ]] && \
-            aws_mounts+=(-v "${_aws_cfg}:/run/secrets/aws-config:ro")
+        local aws_mounts=() aws_env=()
+        if [[ -r "${_aws_cfg_mount}" ]]; then
+            aws_mounts+=(-v "${_aws_cfg_mount}:/run/secrets/aws-config:ro")
+            aws_env+=(-e "AWS_CONFIG_FILE=/run/secrets/aws-config")
+        fi
+        if [[ -r "${_aws_creds_mount}" ]]; then
+            aws_mounts+=(-v "${_aws_creds_mount}:/run/secrets/aws-credentials:ro")
+            aws_env+=(-e "AWS_SHARED_CREDENTIALS_FILE=/run/secrets/aws-credentials")
+        fi
         # shellcheck disable=SC2086
         docker run -d ${DOCKER_RUN_ARGS:-} \
             -e "BUCKET=${BUCKET:-}" \
             -e "BUCKET_LIST=${BUCKET_LIST:-}" \
             -e "DRYRUN=${DRYRUN:-true}" \
             "${aws_mounts[@]}" \
+            "${aws_env[@]}" \
             "$@" \
             "${IMAGE}"
     }
@@ -183,9 +225,13 @@ setup() {
     # entrypoint.  Used for bucket lifecycle operations in test_staging_rotation_e2e.
     _aws() {
         local aws_mounts=() aws_env=()
-        if [[ -r "${_aws_cfg}" ]]; then
-            aws_mounts+=(-v "${_aws_cfg}:/run/secrets/aws-config:ro")
+        if [[ -r "${_aws_cfg_mount}" ]]; then
+            aws_mounts+=(-v "${_aws_cfg_mount}:/run/secrets/aws-config:ro")
             aws_env+=(-e "AWS_CONFIG_FILE=/run/secrets/aws-config")
+        fi
+        if [[ -r "${_aws_creds_mount}" ]]; then
+            aws_mounts+=(-v "${_aws_creds_mount}:/run/secrets/aws-credentials:ro")
+            aws_env+=(-e "AWS_SHARED_CREDENTIALS_FILE=/run/secrets/aws-credentials")
         fi
         # shellcheck disable=SC2086
         docker run --rm --entrypoint /usr/bin/aws \
@@ -195,7 +241,7 @@ setup() {
             "${IMAGE}" "$@"
     }
 
-    export _aws_cfg
+    export _aws_cfg _aws_cfg_mount _aws_creds _aws_creds_mount
     export -f _aws run_rotate_aws_backups run_service_detached
 
     # Create a shared image archive for Trivy, Grype, and Dive — avoids mounting
@@ -203,10 +249,13 @@ setup() {
     _scan_tar=""
     if [[ "${_SCAN}" == "true" ]]; then
         _scan_tar=$(mktemp /tmp/staging-scan-XXXXXX)
-        trap 'rm -f "${_scan_tar}"' EXIT
         docker save "${IMAGE}" > "${_scan_tar}"
     fi
     export _scan_tar
+
+    # Clean up temp files on exit (world-readable config copy + scan archive).
+    # shellcheck disable=SC2064
+    trap 'rm -f "${_aws_cfg_mount}" "${_aws_creds_mount}" "${_scan_tar}"' EXIT
 }
 
 # _days_ago_ts prints a timestamp N days ago in rotate-backups' default format
@@ -231,6 +280,7 @@ _aws_available() {
     local bucket="${BUCKET:-${BUCKET_LIST:-}}"
     [[ -n "${bucket}" ]] && {
         [[ -r "${_aws_cfg:-/nonexistent}" ]] || \
+        [[ -r "${_aws_creds:-/nonexistent}" ]] || \
         [[ -n "${AWS_ACCESS_KEY_ID:-}" ]]
     }
 }
@@ -377,7 +427,7 @@ test_staging_cron_fires() {
 
 # test_staging_rotation_e2e: the only test that validates rotation correctness.
 #
-# Creates a disposable bucket named test.staging.backups.rotate-aws-backups-<epoch>, populates
+# Creates a disposable bucket named test.rotate-aws-backups-<epoch>, populates
 # it with 20 synthetic objects — two files per backup event (a .tar.gz and a
 # .tar.sha1) — to verify that grouped backup sets are deleted and preserved as
 # atomic units.
@@ -395,16 +445,18 @@ test_staging_cron_fires() {
 # DRYRUN env var does not apply here.
 #
 # Required IAM permissions (beyond production): s3:CreateBucket, s3:PutObject,
-# s3:DeleteBucket on arn:aws:s3:::test.staging.backups.rotate-aws-backups-*
+# s3:DeleteBucket on arn:aws:s3:::test.rotate-aws-backups-*
 test_staging_rotation_e2e() {
     _aws_available || { _skip "BUCKET or credentials not configured"; return 0; }
 
     local epoch test_bucket aws_mounts
     epoch=$(date +%s)
-    test_bucket="test.staging.backups.rotate-aws-backups-${epoch}"
+    test_bucket="test.rotate-aws-backups-${epoch}"
     aws_mounts=()
-    [[ -r "${_aws_cfg}" ]] && \
-        aws_mounts+=(-v "${_aws_cfg}:/run/secrets/aws-config:ro")
+    [[ -r "${_aws_cfg_mount}" ]] && \
+        aws_mounts+=(-v "${_aws_cfg_mount}:/run/secrets/aws-config:ro")
+    [[ -r "${_aws_creds_mount}" ]] && \
+        aws_mounts+=(-v "${_aws_creds_mount}:/run/secrets/aws-credentials:ro")
 
     # Always remove the transient bucket on exit — expand test_bucket now so
     # the variable is captured in the trap string rather than re-evaluated.
@@ -412,12 +464,30 @@ test_staging_rotation_e2e() {
     trap "_aws s3 rb 's3://${test_bucket}' --force > /dev/null 2>&1 || true" RETURN
 
     # ── Create bucket ─────────────────────────────────────────────────────────
-    printf '  creating transient test bucket s3://%s...\n' "${test_bucket}" >&2
-    _aws s3 mb "s3://${test_bucket}" > /dev/null 2>&1 || {
+    # Use s3api create-bucket with explicit region handling: AWS rejects a
+    # LocationConstraint of "us-east-1" — that region requires the constraint
+    # to be omitted entirely.  "aws s3 mb" does not handle this reliably across
+    # CLI versions when the configured region is us-east-1.
+    local _region
+    _region=$(_aws configure get region 2>/dev/null) || _region="us-east-1"
+    printf '  creating transient test bucket s3://%s (region: %s)...\n' \
+        "${test_bucket}" "${_region}" >&2
+    local _bucket_out _bucket_result=0
+    if [[ "${_region}" == "us-east-1" ]]; then
+        _bucket_out=$(_aws s3api create-bucket \
+            --bucket "${test_bucket}" 2>&1) || _bucket_result=$?
+    else
+        _bucket_out=$(_aws s3api create-bucket \
+            --bucket "${test_bucket}" \
+            --region "${_region}" \
+            --create-bucket-configuration "LocationConstraint=${_region}" 2>&1) || _bucket_result=$?
+    fi
+    if [[ ${_bucket_result} -ne 0 ]]; then
         echo "FAIL '${FUNCNAME[0]}': could not create bucket" \
-             "(check s3:CreateBucket on test.staging.backups.rotate-aws-backups-*)"
+             "(check s3:CreateBucket on test.rotate-aws-backups-*)"
+        printf '  %s\n' "${_bucket_out}" >&2
         return 1
-    }
+    fi
 
     # ── Populate ──────────────────────────────────────────────────────────────
     # Two files per backup event (.tar.gz + .tar.sha1) exercise the grouped
@@ -449,6 +519,11 @@ test_staging_rotation_e2e() {
     # DRYRUN=false is unconditional here — the point of this test is live deletion.
     printf '  running live rotation (DAILY=7, no other retention)...\n' >&2
     local rot_output rot_result=0
+    local aws_env=()
+    [[ -r "${_aws_cfg_mount}" ]] && \
+        aws_env+=(-e "AWS_CONFIG_FILE=/run/secrets/aws-config")
+    [[ -r "${_aws_creds_mount}" ]] && \
+        aws_env+=(-e "AWS_SHARED_CREDENTIALS_FILE=/run/secrets/aws-credentials")
     # shellcheck disable=SC2086
     rot_output=$(docker run --rm ${DOCKER_RUN_ARGS:-} \
         -e "BUCKET=${test_bucket}" \
@@ -460,6 +535,7 @@ test_staging_rotation_e2e() {
         -e "YEARLY=0" \
         -e "DELETE_IGNORED=false" \
         "${aws_mounts[@]}" \
+        "${aws_env[@]}" \
         "${IMAGE}" 2>&1) || rot_result=$?
 
     if [[ ${rot_result} -ne 0 ]]; then
@@ -607,10 +683,11 @@ main() {
     # ── Option parsing ────────────────────────────────────────────────────────
     while [[ $# -gt 0 ]]; do
         case "$1" in
-            --image)        IMAGE="$2";            shift ;;
-            --bucket)       BUCKET="$2";           shift ;;
-            --bucket-list)  BUCKET_LIST="$2";      shift ;;
-            --aws-config)   AWS_CONFIG_FILE="$2";  shift ;;
+            --image)            IMAGE="$2";                shift ;;
+            --bucket)           BUCKET="$2";               shift ;;
+            --bucket-list)      BUCKET_LIST="$2";          shift ;;
+            --aws-config)       AWS_CONFIG_FILE="$2";      shift ;;
+            --aws-credentials)  AWS_CREDENTIALS_FILE="$2"; shift ;;
             --dryrun)       DRYRUN=true  ;;
             --no-dryrun)    DRYRUN=false ;;
             --scan)         _SCAN=true   ;;
@@ -636,7 +713,7 @@ main() {
     done
 
     # Propagate resolved values so setup() and test functions see them.
-    export IMAGE BUCKET BUCKET_LIST AWS_CONFIG_FILE DRYRUN
+    export IMAGE BUCKET BUCKET_LIST AWS_CONFIG_FILE AWS_CREDENTIALS_FILE DRYRUN
     export _YES _SKIP_E2E _ONLY_TEST _SCAN
 
     # Derive BUCKET_LIST from BUCKET when not set explicitly.
@@ -644,11 +721,13 @@ main() {
 
     # ── Preflight summary ────────────────────────────────────────────────────
     local aws_cfg="${AWS_CONFIG_FILE:-${HOME}/.secrets/aws-config}"
+    local aws_creds="${AWS_CREDENTIALS_FILE:-${HOME}/.secrets/aws-credentials}"
     local bucket="${BUCKET:-${BUCKET_LIST:-}}"
 
     local will_touch_aws=false
     [[ -n "${bucket}" ]] && \
-        { [[ -r "${aws_cfg}" ]] || [[ -n "${AWS_ACCESS_KEY_ID:-}" ]]; } && \
+        { [[ -r "${aws_cfg}" ]] || [[ -r "${aws_creds}" ]] || \
+          [[ -n "${AWS_ACCESS_KEY_ID:-}" ]]; } && \
         will_touch_aws=true
 
     echo "================================================================"
@@ -686,11 +765,11 @@ main() {
         fi
         echo ""
         echo "  E2E test: will CREATE and DELETE a transient bucket:"
-        echo "            s3://test.staging.backups.rotate-aws-backups-<epoch>"
-        echo "            10 synthetic objects are uploaded, rotated live"
+        echo "            s3://test.rotate-aws-backups-<epoch>"
+        echo "            20 synthetic objects are uploaded, rotated live"
         echo "            (DRYRUN=false), then the bucket is deleted."
         echo "            Requires s3:CreateBucket + s3:PutObject +"
-        echo "            s3:DeleteBucket on test.staging.backups.rotate-aws-backups-*"
+        echo "            s3:DeleteBucket on test.rotate-aws-backups-*"
     else
         echo "  AWS:      not configured — AWS-dependent tests will be skipped"
     fi
