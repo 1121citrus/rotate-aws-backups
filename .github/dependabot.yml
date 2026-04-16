@@ -24,6 +24,21 @@ updates:
       - "dependencies"
       - "github-actions"
 
+  # ── Docker ──────────────────────────────────────────────────────────────────
+  # Tracks both FROM lines pinned directly in the Dockerfile:
+  #   golang:1.26.2-alpine  — supercronic builder stage
+  #   python:3.12-alpine3.22 — runtime stage
+  - package-ecosystem: "docker"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+      time: "06:00"
+      timezone: "UTC"
+    labels:
+      - "dependencies"
+      - "docker"
+
   # ── Python pip ───────────────────────────────────────────────────────────────
   # Keeps requirements.txt transitive-patch dependencies up to date.
   # Note: rotate-backups itself is intentionally unpinned here; its version

@@ -16,8 +16,6 @@
 # You should have received a copy of the GNU Affero General Public License
 # along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
-ARG PYTHON_VERSION=3.12
-ARG ALPINE_VERSION=3.22
 ARG ROTATE_BACKUPS_VERSION=
 ARG VERSION=dev
 # renovate: datasource=github-releases depName=aptible/supercronic
@@ -34,14 +32,14 @@ FROM golang:1.26.2-alpine AS supercronic-builder
 ARG SUPERCRONIC_VERSION=v0.2.44
 RUN CGO_ENABLED=0 go install github.com/aptible/supercronic@${SUPERCRONIC_VERSION}
 
-FROM python:${PYTHON_VERSION}-alpine${ALPINE_VERSION}
+# The literal tag lets Dependabot open PRs when a newer python:X.Y.Z-alpineX.Y
+# is published.  The python and Alpine minor versions are pinned together so
+# the OS package set is fully reproducible and bumps are deliberate changes.
+FROM python:3.12-alpine3.22
 
-# Re-declare build args after FROM so they are visible in the build stage.
-ARG PYTHON_VERSION
-ENV PYTHON_VERSION=${PYTHON_VERSION}
-
-ARG ALPINE_VERSION
-ENV ALPINE_VERSION=${ALPINE_VERSION}
+# Expose base-image versions as environment variables for runtime inspection.
+ENV PYTHON_VERSION=3.12
+ENV ALPINE_VERSION=3.22
 
 ARG ROTATE_BACKUPS_VERSION
 ENV ROTATE_BACKUPS_VERSION=${ROTATE_BACKUPS_VERSION}
