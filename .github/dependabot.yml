@@ -28,6 +28,13 @@ updates:
   # Tracks both FROM lines pinned directly in the Dockerfile:
   #   golang:1.26.2-alpine  — supercronic builder stage
   #   python:3.12-alpine3.22 — runtime stage
+  #
+  # Python 3.13+ removed the `pipes` stdlib module (PEP 594). The
+  # `rotate-backups` package depends on `executor`, which imports `pipes` at
+  # module level (executor/__init__.py). Neither package has been updated since
+  # 2020 and there is no Python 3.13-compatible release of either.
+  # Python minor/major bumps are therefore blocked until a maintained
+  # replacement for rotate-backups is adopted.
   - package-ecosystem: "docker"
     directory: "/"
     schedule:
@@ -38,6 +45,9 @@ updates:
     labels:
       - "dependencies"
       - "docker"
+    ignore:
+      - dependency-name: "python"
+        update-types: ["version-update:semver-major", "version-update:semver-minor"]
 
   # ── Python pip ───────────────────────────────────────────────────────────────
   # Keeps requirements.txt transitive-patch dependencies up to date.
