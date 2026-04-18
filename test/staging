@@ -238,6 +238,8 @@ setup() {
             ${DOCKER_RUN_ARGS:-} \
             "${aws_mounts[@]}" \
             "${aws_env[@]}" \
+            -e "AWS_RETRY_MODE=standard" \
+            -e "AWS_MAX_ATTEMPTS=5" \
             "${IMAGE}" "$@"
     }
 
