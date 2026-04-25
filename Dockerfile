@@ -107,6 +107,7 @@ ARG UID=10001
 RUN adduser \
         --disabled-password --gecos "" --shell "/sbin/nologin" \
         --uid "${UID}" rotate-aws-backups \
+    && rm -f /var/spool/cron/crontabs \
     && install -d -m 0755 -o rotate-aws-backups /var/spool/cron/crontabs \
     && chown rotate-aws-backups \
            /var/log/rotate-aws-backups \
