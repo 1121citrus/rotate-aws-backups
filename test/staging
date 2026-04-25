@@ -350,6 +350,49 @@ test_staging_cron_no_bucket() {
     fi
 }
 
+# test_staging_cron_startup: verify the scheduler container starts, writes its
+# crontab, and stays running — no AWS credentials required.
+# Catches Dockerfile permission regressions (e.g. /var/spool/cron/crontabs
+# root-owned via Alpine symlink) that CLI-mode tests cannot exercise.
+test_staging_cron_startup() {
+    local container_id
+    # Use @daily so the job never fires during the test window.
+    # shellcheck disable=SC2086
+    container_id=$(docker run -d ${DOCKER_RUN_ARGS:-} \
+        -e "BUCKET=test.fake-bucket-for-startup-test" \
+        -e "CRON_EXPRESSION=@daily" \
+        "${IMAGE}")
+    printf '  container %s started; waiting for scheduler init...\n' \
+        "${container_id:0:12}" >&2
+
+    sleep 3
+
+    local running
+    running=$(docker inspect --format '{{.State.Running}}' "${container_id}" \
+        2>/dev/null || echo "false")
+
+    local crontab_ok=false
+    if [[ "${running}" == "true" ]]; then
+        docker exec "${container_id}" \
+            test -f /var/spool/cron/crontabs/rotate-aws-backups \
+            > /dev/null 2>&1 && crontab_ok=true
+    fi
+
+    docker stop "${container_id}" > /dev/null 2>&1
+    docker rm   "${container_id}" > /dev/null 2>&1
+
+    if [[ "${running}" != "true" ]]; then
+        echo "FAIL '${FUNCNAME[0]}': container exited within 3s of startup"
+        return 1
+    fi
+    if ! "${crontab_ok}"; then
+        echo "FAIL '${FUNCNAME[0]}': crontab file not found" \
+             "(crontabs directory likely root-owned)"
+        return 1
+    fi
+    echo "PASS '${FUNCNAME[0]}': scheduler running and crontab written"
+}
+
 # ── AWS-dependent tests ───────────────────────────────────────────────────────
 # Each test skips when BUCKET/BUCKET_LIST or credentials are absent.
 
@@ -613,6 +656,7 @@ run_tests() {
         test_staging_trivy_scan
         test_staging_no_bucket_cli_mode
         test_staging_cron_no_bucket
+        test_staging_cron_startup
         test_staging_cli_dryrun
         test_staging_cron_fires
         test_staging_rotation_e2e
