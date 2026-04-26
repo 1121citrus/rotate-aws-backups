@@ -19,7 +19,7 @@
 ARG ROTATE_BACKUPS_VERSION=
 ARG VERSION=dev
 # renovate: datasource=github-releases depName=aptible/supercronic
-ARG SUPERCRONIC_VERSION=v0.2.44
+ARG SUPERCRONIC_VERSION=v0.2.45
 
 # ── Supercronic build stage ────────────────────────────────────────────────
 # Builds supercronic from source with Go 1.26.2, which patches:
@@ -29,7 +29,7 @@ ARG SUPERCRONIC_VERSION=v0.2.44
 # Remove this stage and restore the wget installation once an upstream
 # supercronic release ships with Go >= 1.26.2 (or >= 1.25.9).
 FROM golang:1.26.2-alpine AS supercronic-builder
-ARG SUPERCRONIC_VERSION=v0.2.44
+ARG SUPERCRONIC_VERSION=v0.2.45
 RUN CGO_ENABLED=0 go install github.com/aptible/supercronic@${SUPERCRONIC_VERSION}
 
 # The literal tag lets Dependabot open PRs when a newer python:X.Y.Z-alpineX.Y
