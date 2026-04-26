@@ -88,6 +88,11 @@ RUN echo "[INFO] start installing rotate-aws-backups" \
            fi \
         && echo "[INFO] patching vulnerable transitive dependencies" \
         && pip install --no-cache-dir -r /tmp/requirements.txt \
+        && echo "[INFO] creating pipes compatibility shim for Python 3.13" \
+        && python3 -c \
+               "import site; \
+                open(site.getsitepackages()[0]+'/pipes.py','w') \
+                    .write('# pipes was removed in Python 3.13; shlex.quote is the replacement.\nfrom shlex import quote\n')" \
         && rm -f /usr/lib/python${PYTHON_VERSION}/EXTERNALLY-MANAGED \
        && python3 -m ensurepip --upgrade \
        && python3 -m pip install --no-cache-dir "pip>=26.0" \

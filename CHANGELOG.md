@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.1.11] - 2026-04-26
+
+### Fixed
+
+- Add `pipes` compatibility shim for Python 3.13: the `executor` package
+  (transitive dependency of `rotate-backups`) imports the `pipes` module
+  which was removed in Python 3.13. Installs a one-line stub in
+  site-packages that re-exports `shlex.quote` as `pipes.quote`.
+
 ## [1.1.10] - 2026-04-26
 
 ### Changed
@@ -41,7 +50,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Initial release
 
-[Unreleased]: https://github.com/1121citrus/rotate-aws-backups/compare/v1.1.10...HEAD
+[Unreleased]: https://github.com/1121citrus/rotate-aws-backups/compare/v1.1.11...HEAD
+[1.1.11]: https://github.com/1121citrus/rotate-aws-backups/compare/v1.1.10...v1.1.11
 [1.1.10]: https://github.com/1121citrus/rotate-aws-backups/releases/tag/v1.1.10
 [1.1.9]: https://github.com/1121citrus/rotate-aws-backups/releases/tag/v1.1.9
 [1.1.7]: https://github.com/1121citrus/rotate-aws-backups/releases/tag/v1.1.7
