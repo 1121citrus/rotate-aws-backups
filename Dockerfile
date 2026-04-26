@@ -73,13 +73,13 @@ RUN echo "[INFO] start installing rotate-aws-backups" \
         && apk update \
         && apk upgrade --no-cache --no-interactive \
         && apk add --no-cache \
-               'aws-cli>2' \
                'bash>5' \
                'coreutils>9' \
                'gojq' \
         && ln -sf /usr/bin/gojq /usr/local/bin/jq \
         && echo "[INFO] upgrading pip" \
         && pip install --no-cache-dir --upgrade pip \
+        && pip install --no-cache-dir awscli \
         && echo "[INFO] installing rotate-backups (pip)" \
         && if [ -n "${ROTATE_BACKUPS_VERSION}" ]; then \
                pip install --no-cache-dir "rotate-backups==${ROTATE_BACKUPS_VERSION}"; \
@@ -89,9 +89,9 @@ RUN echo "[INFO] start installing rotate-aws-backups" \
         && echo "[INFO] patching vulnerable transitive dependencies" \
         && pip install --no-cache-dir -r /tmp/requirements.txt \
         && rm -f /usr/lib/python${PYTHON_VERSION}/EXTERNALLY-MANAGED \
-        && /usr/bin/python3 -m ensurepip --upgrade \
-        && /usr/bin/python3 -m pip install --no-cache-dir "pip>=26.0" \
-        && /usr/bin/python3 -m pip install --no-cache-dir \
+       && python3 -m ensurepip --upgrade \
+       && python3 -m pip install --no-cache-dir "pip>=26.0" \
+       && python3 -m pip install --no-cache-dir \
                -r /tmp/requirements.txt \
         && rm /tmp/requirements.txt \
         && install -d -m 755 \

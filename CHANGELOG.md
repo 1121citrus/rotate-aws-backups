@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.1.10] - 2026-04-26
+
+### Changed
+
+- Security refresh for the runtime image:
+  Dockerfile now uses `python:3.13-alpine3.23`, replaces Alpine `jq`
+  with `gojq`, and installs AWS CLI via `pip` to clear High and Critical
+  CVEs from the local build pipeline
+
 ## [1.1.9] - 2026-04-25
 
 ### Changed
@@ -32,7 +41,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Initial release
 
-[Unreleased]: https://github.com/1121citrus/rotate-aws-backups/compare/v1.1.9...HEAD
+[Unreleased]: https://github.com/1121citrus/rotate-aws-backups/compare/v1.1.10...HEAD
+[1.1.10]: https://github.com/1121citrus/rotate-aws-backups/releases/tag/v1.1.10
 [1.1.9]: https://github.com/1121citrus/rotate-aws-backups/releases/tag/v1.1.9
 [1.1.7]: https://github.com/1121citrus/rotate-aws-backups/releases/tag/v1.1.7
 [1.1.4]: https://github.com/1121citrus/rotate-aws-backups/releases/tag/v1.1.4
