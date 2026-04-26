@@ -56,10 +56,10 @@ setup() {
 # Advisement Option Parsing Tests
 # ============================================================================
 
-@test "build --advise scout enables Scout" {
+@test "build --advise scout is rejected (scout is gating)" {
     run "${BUILD_SCRIPT}" --advise scout --dry-run --no-lint --no-test --no-scan 2>&1
-    [[ $status -eq 0 ]]
-    [[ "$output" == *"Stage 5b: Advise (Scout)"* ]]
+    [[ $status -eq 1 ]]
+    [[ "$output" == *"Unknown advisement"* ]]
 }
 
 @test "build --advise dive enables Dive" {
@@ -80,17 +80,16 @@ setup() {
     [[ "$output" == *"Stage 5c: Advise (Dive)"* ]]
 }
 
-@test "build --advice scout is alias for --advise scout" {
+@test "build --advice scout is rejected (scout is gating)" {
     run "${BUILD_SCRIPT}" --advice scout --dry-run --no-lint --no-test --no-scan 2>&1
-    [[ $status -eq 0 ]]
-    [[ "$output" == *"Stage 5b: Advise (Scout)"* ]]
+    [[ $status -eq 1 ]]
+    [[ "$output" == *"Unknown advisement"* ]]
 }
 
-@test "build --advise scout,dive enables Scout and Dive" {
+@test "build --advise scout,dive is rejected (scout is gating)" {
     run "${BUILD_SCRIPT}" --advise scout,dive --dry-run --no-lint --no-test --no-scan 2>&1
-    [[ $status -eq 0 ]]
-    [[ "$output" == *"Stage 5b: Advise (Scout)"* ]]
-    [[ "$output" == *"Stage 5c: Advise (Dive)"* ]]
+    [[ $status -eq 1 ]]
+    [[ "$output" == *"Unknown advisement"* ]]
 }
 
 @test "build --advise rejects unknown advisement" {
@@ -105,8 +104,8 @@ setup() {
     [[ "$output" == *"Stage 5d: Coverage"* ]]
 }
 
-@test "build --no-coverage skips Stage 5d" {
-    run "${BUILD_SCRIPT}" --no-coverage --dry-run --no-lint --no-scan --no-advise 2>&1
+@test "build --advise none disables Coverage stage" {
+    run "${BUILD_SCRIPT}" --advise all --advise none --dry-run --no-lint --no-scan 2>&1
     [[ $status -eq 0 ]]
     [[ "$output" != *"Stage 5d: Coverage"* ]]
 }
