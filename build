@@ -428,7 +428,7 @@ _timed() {
     local _watcher=$!
     wait "${_pid}" 2>/dev/null; local _rc=$?
     kill "${_watcher}" 2>/dev/null
-    wait "${_watcher}" 2>/dev/null
+    wait "${_watcher}" 2>/dev/null || true
     return "${_rc}"
 }
 
