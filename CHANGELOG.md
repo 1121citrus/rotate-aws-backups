@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.1.9] - 2026-04-25
+
+### Changed
+
+- Maintenance release
+
 ## [1.1.7] - 2026-04-25
 
 ### Fixed
@@ -26,5 +32,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Initial release
 
-[Unreleased]: https://github.com/1121citrus/rotate-aws-backups/compare/v1.1.4...HEAD
+[Unreleased]: https://github.com/1121citrus/rotate-aws-backups/compare/v1.1.9...HEAD
+[1.1.9]: https://github.com/1121citrus/rotate-aws-backups/releases/tag/v1.1.9
+[1.1.7]: https://github.com/1121citrus/rotate-aws-backups/releases/tag/v1.1.7
 [1.1.4]: https://github.com/1121citrus/rotate-aws-backups/releases/tag/v1.1.4
