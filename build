@@ -658,7 +658,7 @@ if [[ "${ADVISE_GRYPE}" == "true" ]]; then
     fi
 
     if [[ "${_grype_run_scan}" == "true" ]]; then
-        _timed 300 docker run --rm \
+        _timed 600 docker run --rm \
             -v "${_scan_tar}:/scan.tar:ro" \
             -e "GRYPE_DB_CACHE_DIR=${GRYPE_DB_CACHE_DIR}" \
             -v "${GRYPE_CACHE_VOLUME}:${GRYPE_DB_CACHE_DIR}" \
