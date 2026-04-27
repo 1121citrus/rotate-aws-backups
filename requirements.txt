@@ -2,8 +2,8 @@
 # Minimum constraints: raise the floor here when CVE fixes are released.
 # Dependabot tracks this file and opens version-bump PRs automatically.
 # Applied to both the pip-managed venv and the system Python interpreter.
-cryptography >= 46.0.5
-idna >= 3.7
-setuptools >= 78.1.0
+cryptography >= 47.0.0
+idna >= 3.13
+setuptools >= 82.0.1
 urllib3 >= 2.6.3
-zipp >= 3.19.1
+zipp >= 3.23.1
