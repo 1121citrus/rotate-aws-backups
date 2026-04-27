@@ -6,4 +6,4 @@ cryptography >= 46.0.5
 idna >= 3.7
 setuptools >= 78.1.0
 urllib3 >= 2.6.3
-zipp >= 3.19.1
+zipp >= 3.23.1
