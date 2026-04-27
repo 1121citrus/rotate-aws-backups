@@ -1,11 +1,6 @@
 #!/usr/bin/env bash
 # shellcheck shell=bash
 
-# -- GENERATED -- do not edit directly.
-# Template: src/build/generate @ 05378d3
-# Generated: 2026-04-19T22:48:54Z
-# Regenerate: bin/build-generate rotate-aws-backups
-
 # build — local CI equivalent for rotate-aws-backups.
 #
 # Copyright (C) 2025-2026 James Hanlon [mailto:jim@hanlonsoftware.com]
@@ -116,9 +111,9 @@ set -euo pipefail
 
 # -- GENERATED metadata (informational; enforcement is in CI) --
 # shellcheck disable=SC2034
-GENERATED_AT="2026-04-19T22:48:54Z"
+GENERATED_AT="2026-04-27T14:35:12Z"
 # shellcheck disable=SC2034
-GENERATED_FROM_SHA="05378d3"
+GENERATED_FROM_SHA="a7999ba"
 
 # ---------------------------------------------------------------------------
 # Defaults — may be overridden by environment variables or CLI flags.
@@ -475,12 +470,18 @@ fi
 
 # ---------------------------------------------------------------------------
 # Construct the tag list.
+# Dev builds are tagged as both dev-<commit> and dev-latest.
 # "latest" is only added for non-dev (release) builds that will be pushed.
 # ---------------------------------------------------------------------------
 full_image="${REGISTRY}/${IMAGE_NAME}"
-tags=("--tag" "${full_image}:${VERSION}")
-if [[ "${PUSH}" == "true" && "${VERSION}" != dev-* ]]; then
-    tags+=("--tag" "${full_image}:latest")
+# Re-tag as :latest locally so test scripts that default to IMAGE:latest work.
+tags=("--tag" "${full_image}:${VERSION}" "--tag" "${full_image}:latest")
+if [[ "${VERSION}" == dev-* ]]; then
+    tags+=("--tag" "${full_image}:dev-latest")
+fi
+if [[ "${PUSH}" == "true" && "${VERSION}" == dev-* ]]; then
+    # For dev builds being pushed, keep dev tags but drop :latest.
+    tags=("--tag" "${full_image}:${VERSION}" "--tag" "${full_image}:dev-latest")
 fi
 
 # Build-arg for the application version (stored in the image).
@@ -740,13 +741,10 @@ if [[ "${SCAN_SCOUT}" == "true" ]]; then
     if [[ "${DRY_RUN}" == "true" ]]; then
         run docker scout cves "${full_image}:${VERSION}"
     else
-        _scout_cache_dir=$(mktemp -d "${TMPDIR:-/tmp}/docker-scout-cache.XXXXXX")
         set +e
-        _scout_out=$(DOCKER_SCOUT_CACHE_DIR="${_scout_cache_dir}" \
-            docker scout cves "${full_image}:${VERSION}" 2>&1)
+        _scout_out=$(docker scout cves "${full_image}:${VERSION}" 2>&1)
         _scout_status=$?
         set -e
-        rm -rf "${_scout_cache_dir}"
         if [[ ${_scout_status} -ne 0 ]] \
             && echo "${_scout_out}" \
                 | grep -qiE 'not found|cannot pull|failed to resolve'; then
@@ -838,9 +836,11 @@ fi
 if [[ "${PUSH}" == "true" ]]; then
     echo "==> Stage 6: Push ${full_image}:${VERSION} (${PLATFORMS})" >&2
 
-    # For push, only include :latest on non-dev releases.
+    # For push, include :latest on releases and :dev-latest on dev builds.
     push_tags=("--tag" "${full_image}:${VERSION}")
-    if [[ "${VERSION}" != dev-* ]]; then
+    if [[ "${VERSION}" == dev-* ]]; then
+        push_tags+=("--tag" "${full_image}:dev-latest")
+    else
         push_tags+=("--tag" "${full_image}:latest")
     fi
 
