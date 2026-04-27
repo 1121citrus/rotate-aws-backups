@@ -1,7 +1,7 @@
 # Dependabot configuration.
 #
 # Dependabot opens automated PRs to keep dependencies current.
-# Each update group is checked weekly on Monday mornings (UTC).
+# Each update group is checked daily (UTC).
 #
 # References:
 #   https://docs.github.com/en/code-security/dependabot/dependabot-version-updates/configuration-options-for-the-dependabot.yml-file
@@ -16,8 +16,7 @@ updates:
   - package-ecosystem: "github-actions"
     directory: "/"
     schedule:
-      interval: "weekly"
-      day: "monday"
+      interval: "daily"
       time: "06:00"
       timezone: "UTC"
     labels:
@@ -27,7 +26,7 @@ updates:
   # ── Docker ──────────────────────────────────────────────────────────────────
   # Tracks both FROM lines pinned directly in the Dockerfile:
   #   golang:1.26.2-alpine  — supercronic builder stage
-  #   python:3.12-alpine3.22 — runtime stage
+  #   python:3.13-alpine3.23 — runtime stage
   #
   # Python 3.13+ removed the `pipes` stdlib module (PEP 594). The
   # `rotate-backups` package depends on `executor`, which imports `pipes` at
@@ -38,8 +37,7 @@ updates:
   - package-ecosystem: "docker"
     directory: "/"
     schedule:
-      interval: "weekly"
-      day: "monday"
+      interval: "daily"
       time: "06:00"
       timezone: "UTC"
     labels:
@@ -56,8 +54,7 @@ updates:
   - package-ecosystem: "pip"
     directory: "/"
     schedule:
-      interval: "weekly"
-      day: "monday"
+      interval: "daily"
       time: "06:00"
       timezone: "UTC"
     labels:
