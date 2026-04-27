@@ -7,14 +7,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-## [1.1.11] - 2026-04-26
+## [1.1.11] - 2026-04-27
 
 ### Fixed
 
 - Add `pipes` compatibility shim for Python 3.13: the `executor` package
   (transitive dependency of `rotate-backups`) imports the `pipes` module
   which was removed in Python 3.13. Installs a one-line stub in
-  site-packages that re-exports `shlex.quote` as `pipes.quote`.
+  site-packages that re-exports `shlex.quote` as `pipes.quote`
+- Correct AWS CLI entrypoint path in staging `_aws()` helper
+
+### Changed
+
+- Bump pip minimum constraints: `cryptography>=47.0.0`, `idna>=3.13`,
+  `setuptools>=82.0.1`, `zipp>=3.23.1`
+- Switch Dependabot schedule from weekly to daily; update Docker ecosystem
+  comment to reflect current `python:3.13-alpine3.23` base
+
+### Added
+
+- Staging test: add `--advise` and `--cache` options
 
 ## [1.1.10] - 2026-04-26
 
