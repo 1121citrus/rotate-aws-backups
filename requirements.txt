@@ -3,7 +3,7 @@
 # Dependabot tracks this file and opens version-bump PRs automatically.
 # Applied to both the pip-managed venv and the system Python interpreter.
 cryptography >= 46.0.5
-idna >= 3.7
+idna >= 3.13
 setuptools >= 78.1.0
 urllib3 >= 2.6.3
 zipp >= 3.19.1
