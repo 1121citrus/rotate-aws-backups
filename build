@@ -825,6 +825,7 @@ if [[ "${ADVISE_COVERAGE}" == "true" ]]; then
                 test/04-image-metadata.bats \
                 test/05-common-functions.bats \
                 test/06-rotate-aws-backups.bats \
+                test/07-source-coverage.bats \
             >&2 || echo "    Coverage run failed (advisory only)" >&2
     fi
 fi
