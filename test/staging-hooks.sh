@@ -164,26 +164,18 @@ test_staging_cron_fires() {
     printf '  container %s started; waiting for first cron rotation (up to 2m)...\n' \
         "${container_id:0:12}" >&2
 
-    local elapsed=0 timeout=120 interval=10 found=false last_log
-    while [[ ${elapsed} -lt ${timeout} ]]; do
-        sleep "${interval}"
-        elapsed=$(( elapsed + interval ))
-        if docker logs "${container_id}" 2>&1 | grep -q 'completed.*bucket rotation'; then
-            found=true
-            break
-        fi
-        last_log=$(docker logs --tail 1 "${container_id}" 2>&1)
-        printf '  [%ds] waiting... (last: %s)\n' "${elapsed}" "${last_log}" >&2
-    done
+    local result=0
+    _wait_for_log_pattern "${container_id}" 'completed.*bucket rotation' 120 \
+        || result=$?
 
     docker stop "${container_id}" > /dev/null 2>&1
     docker rm   "${container_id}" > /dev/null 2>&1
 
-    if "${found}"; then
-        echo "PASS '${FUNCNAME[0]}': cron rotation completed within ${elapsed}s" \
+    if [[ ${result} -eq 0 ]]; then
+        echo "PASS '${FUNCNAME[0]}': cron rotation completed within ${_WAIT_ELAPSED}s" \
              "(DRYRUN=${DRYRUN:-true})"
     else
-        echo "FAIL '${FUNCNAME[0]}': rotation did not complete within ${timeout}s"
+        echo "FAIL '${FUNCNAME[0]}': rotation did not complete within 120s"
         return 1
     fi
 }
