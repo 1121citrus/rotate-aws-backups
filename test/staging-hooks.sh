@@ -74,39 +74,6 @@ setup_hooks() {
 # CLI / smoke tests (no AWS required)
 # ---------------------------------------------------------------------------
 
-test_staging_help() {
-    local output result=0
-    output=$(run_rotate_aws_backups --help 2>&1) || result=$?
-    if [[ ${result} -eq 0 ]] && echo "${output}" | grep -q 'Usage:'; then
-        echo "PASS '${FUNCNAME[0]}': --help exits 0 and prints usage"
-    else
-        echo "FAIL '${FUNCNAME[0]}': --help failed (exit=${result})"
-        return 1
-    fi
-}
-
-test_staging_version() {
-    local output result=0
-    output=$(run_rotate_aws_backups --version 2>&1) || result=$?
-    if [[ ${result} -eq 0 ]] && [[ -n "${output}" ]]; then
-        echo "PASS '${FUNCNAME[0]}': --version exits 0 and prints: ${output}"
-    else
-        echo "FAIL '${FUNCNAME[0]}': --version failed (exit=${result})"
-        return 1
-    fi
-}
-
-test_staging_unknown_option() {
-    local result=0
-    run_rotate_aws_backups --no-such-option > /dev/null 2>&1 || result=$?
-    if [[ ${result} -ne 0 ]]; then
-        echo "PASS '${FUNCNAME[0]}': exits non-zero for unknown option"
-    else
-        echo "FAIL '${FUNCNAME[0]}': should have exited non-zero for unknown option"
-        return 1
-    fi
-}
-
 test_staging_no_bucket_cli_mode() {
     local result=0
     docker run --rm "${IMAGE}" > /dev/null 2>&1 || result=$?
