@@ -27,6 +27,7 @@ _days_ago_ts() {
 setup_hooks() {
     # Run rotate-aws-backups with staging credentials and the given CLI args.
     # Note: the container uses BUCKET (not S3_BUCKET_NAME) as its env var.
+    # shellcheck disable=SC2120
     run_rotate_aws_backups() {
         local args=()
         _append_aws_mounts args
