@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.1.12] - 2026-05-01
+
+### Changed
+
+- Bump base image from `python:3.13-alpine3.23` to `python:3.14-alpine3.22`
+- Fix SC2140 (unescaped quotes in echo) in `test/staging`
+
 ## [1.1.11] - 2026-04-27
 
 ### Fixed

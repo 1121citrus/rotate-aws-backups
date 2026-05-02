@@ -35,7 +35,7 @@ RUN CGO_ENABLED=0 go install github.com/aptible/supercronic@${SUPERCRONIC_VERSIO
 # The literal tag lets Dependabot open PRs when a newer python:X.Y.Z-alpineX.Y
 # is published.  The python and Alpine minor versions are pinned together so
 # the OS package set is fully reproducible and bumps are deliberate changes.
-FROM python:3.13-alpine3.23
+FROM python:3.14-alpine3.22
 
 # Expose base-image versions as environment variables for runtime inspection.
 ENV PYTHON_VERSION=3.13
