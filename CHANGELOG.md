@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.1.13] - 2026-05-04
+
+### Added
+
+- Add `gitleaks` CI workflow for secret scanning
+- Regenerate `build` and `test/staging` scripts with gitleaks advisement support and dive output filter
+
 ## [1.1.12] - 2026-05-01
 
 ### Changed
@@ -69,7 +76,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Initial release
 
-[Unreleased]: https://github.com/1121citrus/rotate-aws-backups/compare/v1.1.11...HEAD
+[Unreleased]: https://github.com/1121citrus/rotate-aws-backups/compare/v1.1.13...HEAD
+[1.1.13]: https://github.com/1121citrus/rotate-aws-backups/compare/v1.1.12...v1.1.13
+[1.1.12]: https://github.com/1121citrus/rotate-aws-backups/compare/v1.1.11...v1.1.12
 [1.1.11]: https://github.com/1121citrus/rotate-aws-backups/compare/v1.1.10...v1.1.11
 [1.1.10]: https://github.com/1121citrus/rotate-aws-backups/releases/tag/v1.1.10
 [1.1.9]: https://github.com/1121citrus/rotate-aws-backups/releases/tag/v1.1.9
