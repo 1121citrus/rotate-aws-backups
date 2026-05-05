@@ -706,3 +706,6 @@ for bucket in ${BUCKET_LIST:?Need BUCKET_LIST}; do
     WORKDIR=$(mktemp -d)
     METADIR=$(mktemp -d)
 done
+
+# Write the healthcheck success marker so the container reports healthy.
+touch "${HEALTHCHECK_SUCCESS_FILE:-/tmp/.rotate-aws-backups-success}"
