@@ -28,7 +28,7 @@ ARG SUPERCRONIC_VERSION=v0.2.45
 #   CVE-2026-33810 (crypto/x509 cert validation bypass) HIGH
 # Remove this stage and restore the wget installation once an upstream
 # supercronic release ships with Go >= 1.26.2 (or >= 1.25.9).
-FROM golang:1.26.2-alpine AS supercronic-builder
+FROM golang:1.26.3-alpine AS supercronic-builder
 ARG SUPERCRONIC_VERSION=v0.2.45
 RUN CGO_ENABLED=0 go install github.com/aptible/supercronic@${SUPERCRONIC_VERSION}
 
