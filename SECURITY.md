@@ -112,38 +112,71 @@ HIGH/CRITICAL vulnerabilities.
 
 ## Known vulnerabilities
 
-All seven remaining vulnerabilities are in Alpine APK packages with no
-upstream fix available as of **2026-03-23**. They cannot be remediated without
-replacing Alpine or the affected APK packages.
+**Trivy gate status (as of 2026-05-14): PASS — no unfixed HIGH/CRITICAL CVEs.**
+Trivy scans every CI build and fails on any unfixed HIGH/CRITICAL finding.
+The items below are reported by Grype and Docker Scout (advisory only) and do
+not block the pipeline.
 
-**Distinction:** A "fixable" CVE has a patch available but not yet deployed (remediation is possible).
-An "unfixed" CVE has no patch available from any vendor (no remediation possible).
+**Distinction:** A "fixable" CVE has a patch available but not yet deployed.
+An "unfixed" CVE has no patch available from any vendor.
 
-| CVE | Package | Severity | Status | Notes |
-| --- | --- | --- | --- | --- |
-| CVE-2025-66471 | `py3-urllib3 1.26.20-r1` (APK) | HIGH | Not fixed in Alpine | Brought in by `aws-cli` APK; no Alpine fix available. |
-| CVE-2025-66418 | `py3-urllib3 1.26.20-r1` (APK) | HIGH | Not fixed in Alpine | Same package/vector as above. |
-| CVE-2025-50182 | `py3-urllib3 1.26.20-r1` (APK) | MEDIUM | Not fixed in Alpine | Same package; open-redirect variant. |
-| CVE-2025-50181 | `py3-urllib3 1.26.20-r1` (APK) | MEDIUM | Not fixed in Alpine | Same package; open-redirect variant. |
-| CVE-2016-2781 | `coreutils 9.7-r1` | MEDIUM | No upstream fix (ever) | Affects the `chroot` command; `chroot` is not used in this container. |
-| CVE-2025-60876 | `busybox 1.37.0-r20` | MEDIUM | Not fixed in Alpine | No Alpine fix available. |
-| CVE-2026-27171 | `zlib 1.3.1-r2` | LOW | Not fixed in Alpine | No Alpine fix available. |
+### Advisory-only findings (Grype / Docker Scout)
+
+#### Alpine APK packages — no upstream fix available
+
+| CVE | Package | Severity | Notes |
+| --- | --- | --- | --- |
+| CVE-2016-2781 | `coreutils 9.7-r1` | MEDIUM | Affects `chroot`; `chroot` is not used in this container. No upstream fix ever. |
+| CVE-2025-60876 | `busybox 1.37.0-r20` | MEDIUM | No Alpine fix available. |
+| CVE-2025-70873 | `sqlite-libs 3.49.2-r1` | HIGH | No Alpine fix available. |
+
+#### `gojq` (apk) — embedded Go stdlib compiled with go1.24.12
+
+The Alpine `gojq` package is compiled with Go 1.24.12; the fix requires a
+new Alpine package built with Go ≥ 1.25.10 / ≥ 1.26.3.
+`gojq` does not accept network input in this container, limiting exposure.
+
+| CVE | Severity | Fixed in Go |
+| --- | --- | --- |
+| CVE-2026-25679 | HIGH | ≥ 1.25.8 / ≥ 1.26.1 |
+| CVE-2026-27140 | HIGH | ≥ 1.25.9 / ≥ 1.26.2 |
+| CVE-2026-32280 | HIGH | ≥ 1.25.9 / ≥ 1.26.2 |
+| CVE-2026-32281 | HIGH | ≥ 1.25.9 / ≥ 1.26.2 |
+| CVE-2026-32283 | HIGH | ≥ 1.25.9 / ≥ 1.26.2 |
+| CVE-2026-27143 | CRITICAL | ≥ 1.25.9 / ≥ 1.26.2 |
+| CVE-2025-68121 | CRITICAL | ≥ 1.24.13 / ≥ 1.25.7 |
+| CVE-2026-33811 | HIGH | ≥ 1.25.10 / ≥ 1.26.3 |
+| CVE-2026-33814 | HIGH | ≥ 1.25.10 / ≥ 1.26.3 |
+| CVE-2026-39820 | HIGH | ≥ 1.25.10 / ≥ 1.26.3 |
+| CVE-2026-39836 | HIGH | ≥ 1.25.10 / ≥ 1.26.3 |
+| CVE-2026-42499 | HIGH | ≥ 1.25.10 / ≥ 1.26.3 |
+
+#### Python 3.14 binary — no fix in Alpine yet
+
+| CVE | Severity | Notes |
+| --- | --- | --- |
+| CVE-2026-6100 | CRITICAL | Use-after-free in decompression; no Alpine fix available. |
+| CVE-2026-3298 | HIGH | No Alpine fix available. |
+| CVE-2026-4786 | HIGH | `webbrowser.open()` command injection; `webbrowser` is not used in this container. |
+
+---
 
 ### Remediation history
 
-The following CVEs were present in earlier releases and have been fixed:
-
 | CVE | Package | Fix applied |
 | --- | --- | --- |
-| CVE-2026-21441, CVE-2025-66471, CVE-2025-66418, CVE-2025-50181 | `urllib3` (PyPI — rotate-backups runtime) | Pinned `urllib3>=2.6.3` in Python 3.14 env |
-| CVE-2026-26007 | `cryptography` (PyPI — rotate-backups runtime) | Pinned `cryptography>=46.0.5` in Python 3.14 env |
+| CVE-2026-21441, CVE-2025-66471, CVE-2025-66418, CVE-2025-50181 | `urllib3` (PyPI) | Pinned `urllib3>=2.6.3` in Python 3.14 env |
+| CVE-2026-44431, + above | `urllib3` (PyPI) | Raised floor to `urllib3>=2.7.0` (2026-05-14) |
+| CVE-2026-26007 | `cryptography` (PyPI) | Pinned `cryptography>=46.0.5` in Python 3.14 env |
+| multiple | `cryptography` (PyPI) | Raised floor to `cryptography>=48.0.0` (2026-05-14) |
+| CVE-2024-3651 | `idna` (PyPI) | Pinned `idna>=3.7`; raised to `idna>=3.15` (2026-05-14) |
 | CVE-2024-5569 | `zipp` (PyPI) | Pinned `zipp>=3.19.1` |
 | CVE-2024-53427, CVE-2025-48060, CVE-2024-23337 | `jq` (APK) | Base image bump to `python:3.14-alpine3.22` |
 | CVE-2025-8869, CVE-2026-1703 | `pip` (system Python) | Upgraded system Python pip to ≥26.0 |
-| CVE-2026-26007 | `cryptography` (system Python — aws-cli runtime) | Upgraded via system Python pip |
 | CVE-2024-12797 | `cryptography` (PyPI) | Resolved by `cryptography>=46.0.5` pin |
 | CVE-2024-6345 | `setuptools` (PyPI) | Pinned `setuptools>=78.1.0` in both Python envs |
-| CVE-2024-3651 | `idna` (PyPI) | Pinned `idna>=3.7` in both Python envs |
+| CVE-2026-32280, CVE-2026-32282, CVE-2026-33810 | `supercronic` Go stdlib | Built supercronic from source with `golang:1.26.2-alpine` |
+| CVE-2026-33811, CVE-2026-33814, CVE-2026-39820, CVE-2026-39836, CVE-2026-42499 | `supercronic` Go stdlib | Upgraded builder to `golang:1.26.3-alpine` (2026-05-14) |
 
 ## Reporting vulnerabilities
 
