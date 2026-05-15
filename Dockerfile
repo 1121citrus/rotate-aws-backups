@@ -22,13 +22,18 @@ ARG VERSION=dev
 ARG SUPERCRONIC_VERSION=v0.2.45
 
 # ── Supercronic build stage ────────────────────────────────────────────────
-# Builds supercronic from source with Go 1.26.2, which patches:
+# Builds supercronic from source with Go 1.26.3, which patches:
 #   CVE-2026-32280 (crypto/x509 DoS) HIGH
 #   CVE-2026-32282 (os.Root symlink traversal) MEDIUM
 #   CVE-2026-33810 (crypto/x509 cert validation bypass) HIGH
+#   CVE-2026-33811 (LookupCNAME memory issue) HIGH
+#   CVE-2026-33814 (HTTP/2 SETTINGS frame processing hang) HIGH
+#   CVE-2026-39820 (ParseAddress DoS) HIGH
+#   CVE-2026-39836 (Dial/LookupPort panic on NUL byte) HIGH
+#   CVE-2026-42499 (consumePhrase DoS) HIGH
 # Remove this stage and restore the wget installation once an upstream
-# supercronic release ships with Go >= 1.26.2 (or >= 1.25.9).
-FROM golang:1.26.2-alpine AS supercronic-builder
+# supercronic release ships with Go >= 1.26.3 (or >= 1.25.10).
+FROM golang:1.26.3-alpine AS supercronic-builder
 ARG SUPERCRONIC_VERSION=v0.2.45
 RUN CGO_ENABLED=0 go install github.com/aptible/supercronic@${SUPERCRONIC_VERSION}
 
@@ -63,8 +68,9 @@ LABEL org.opencontainers.image.title="rotate-aws-backups" \
       org.opencontainers.image.revision="${GIT_COMMIT}" \
       org.opencontainers.image.created="${BUILD_DATE}"
 
-# Install supercronic binary compiled with Go 1.26.2 (patches CVE-2026-32280,
-# CVE-2026-32282, CVE-2026-33810 via Go stdlib upgrade).
+# Install supercronic binary compiled with Go 1.26.3 (patches CVE-2026-32280,
+# CVE-2026-32282, CVE-2026-33810, CVE-2026-33811, CVE-2026-33814,
+# CVE-2026-39820, CVE-2026-39836, CVE-2026-42499 via Go stdlib upgrade).
 COPY --from=supercronic-builder --chmod=755 /go/bin/supercronic /usr/local/bin/
 
 COPY requirements.txt /tmp/
