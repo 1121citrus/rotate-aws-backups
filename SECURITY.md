@@ -169,8 +169,8 @@ new Alpine package built with Go ≥ 1.25.10 / ≥ 1.26.3.
 | CVE-2026-44431, + above | `urllib3` (PyPI) | Raised floor to `urllib3>=2.7.0` (2026-05-14) |
 | CVE-2026-26007 | `cryptography` (PyPI) | Pinned `cryptography>=46.0.5` in Python 3.14 env |
 | multiple | `cryptography` (PyPI) | Raised floor to `cryptography>=48.0.0` (2026-05-14) |
-| CVE-2024-3651 | `idna` (PyPI) | Pinned `idna>=3.7`; raised to `idna>=3.15` (2026-05-14) |
-| CVE-2024-5569 | `zipp` (PyPI) | Pinned `zipp>=3.19.1` |
+| CVE-2024-3651 | `idna` (PyPI) | Pinned `idna>=3.7`; raised to `idna>=3.15` (2026-05-14), then `idna>=3.16` (2026-05-23) |
+| CVE-2024-5569 | `zipp` (PyPI) | Pinned `zipp>=3.19.1`; raised to `zipp>=4.1.0` (2026-05-23) |
 | CVE-2024-53427, CVE-2025-48060, CVE-2024-23337 | `jq` (APK) | Base image bump to `python:3.14-alpine3.22` |
 | CVE-2025-8869, CVE-2026-1703 | `pip` (system Python) | Upgraded system Python pip to ≥26.0 |
 | CVE-2024-12797 | `cryptography` (PyPI) | Resolved by `cryptography>=46.0.5` pin |
