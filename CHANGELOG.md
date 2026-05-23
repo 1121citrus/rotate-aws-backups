@@ -7,6 +7,32 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.1.15] - 2026-05-23
+
+### Changed
+
+- Raise minimum constraints to `idna>=3.16` and `zipp>=4.1.0`
+- Remove invalid `pip` labels from Dependabot configuration
+
+## [1.1.14] - 2026-05-14
+
+### Added
+
+- Add advisory stages for metrics, security, and churn (`5f`, `5g`, `5h`)
+
+### Changed
+
+- Bump runtime/tooling minimums: `cryptography>=48.0.0`, `idna>=3.15`,
+  `urllib3>=2.7.0`, and Go `1.26.3`
+- Regenerate `build` to remove the invalid `env ... run ./test/run-all`
+  wrapper
+- Refresh `doc/known-vulnerabilities.md` with open and remediated findings
+
+### Fixed
+
+- Write the healthcheck success marker after CLI-mode rotation completes
+- Use `stat -c %Y` for mtime checks instead of BSD-only `stat -f %m`
+
 ## [1.1.13] - 2026-05-04
 
 ### Added
@@ -76,7 +102,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Initial release
 
-[Unreleased]: https://github.com/1121citrus/rotate-aws-backups/compare/v1.1.13...HEAD
+[Unreleased]: https://github.com/1121citrus/rotate-aws-backups/compare/v1.1.15...HEAD
+[1.1.15]: https://github.com/1121citrus/rotate-aws-backups/compare/d365a23...8bdce26
+[1.1.14]: https://github.com/1121citrus/rotate-aws-backups/compare/v1.1.13...v1.1.14
 [1.1.13]: https://github.com/1121citrus/rotate-aws-backups/compare/v1.1.12...v1.1.13
 [1.1.12]: https://github.com/1121citrus/rotate-aws-backups/compare/v1.1.11...v1.1.12
 [1.1.11]: https://github.com/1121citrus/rotate-aws-backups/compare/v1.1.10...v1.1.11
