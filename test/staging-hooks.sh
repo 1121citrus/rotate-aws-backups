@@ -19,6 +19,26 @@ _days_ago_ts() {
     date -u -v-"${n}"d '+%Y%m%dT120000'
 }
 
+# _put_object_with_retry uploads one object and tolerates transient post-create
+# bucket propagation delays by retrying a few times before failing.
+_put_object_with_retry() {
+    local bucket="$1"
+    local key="$2"
+    local attempts=6
+    local n
+    local out
+    for n in $(seq 1 "${attempts}"); do
+        out=$(_aws s3api put-object \
+            --bucket "${bucket}" \
+            --key "${key}" 2>&1) && return 0
+        if [[ "${n}" -lt "${attempts}" ]]; then
+            sleep 2
+        fi
+    done
+    printf '%s\n' "${out}" >&2
+    return 1
+}
+
 # ---------------------------------------------------------------------------
 # setup_hooks — defines docker-run helpers used by test functions.
 # Called by setup() in the generated harness after credentials are ready.
@@ -187,10 +207,9 @@ test_staging_rotation_e2e() {
     for i in 1 2 3 60 61 62 63 64 65 66; do
         ts=$(_days_ago_ts "${i}")
         for ext in tar.gz tar.sha1; do
-            _aws s3api put-object \
-                --bucket "${test_bucket}" \
-                --key "backup-${ts}.${ext}" \
-                > /dev/null 2>&1 || {
+            _put_object_with_retry \
+                "${test_bucket}" \
+                "backup-${ts}.${ext}" || {
                 echo "FAIL '${FUNCNAME[0]}': could not upload backup-${ts}.${ext}"
                 return 1
             }

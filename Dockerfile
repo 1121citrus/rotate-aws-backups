@@ -40,10 +40,10 @@ RUN CGO_ENABLED=0 go install github.com/aptible/supercronic@${SUPERCRONIC_VERSIO
 # The literal tag lets Dependabot open PRs when a newer python:X.Y.Z-alpineX.Y
 # is published.  The python and Alpine minor versions are pinned together so
 # the OS package set is fully reproducible and bumps are deliberate changes.
-FROM python:3.14-alpine3.22
+FROM python:3.14-alpine3.23
 
 # Expose base-image versions as environment variables for runtime inspection.
-ENV PYTHON_VERSION=3.13
+ENV PYTHON_VERSION=3.14
 ENV ALPINE_VERSION=3.23
 
 ARG ROTATE_BACKUPS_VERSION
@@ -81,8 +81,7 @@ RUN echo "[INFO] start installing rotate-aws-backups" \
         && apk add --no-cache \
                'bash>5' \
                'coreutils>9' \
-               'gojq' \
-        && ln -sf /usr/bin/gojq /usr/local/bin/jq \
+               'jq' \
         && echo "[INFO] upgrading pip" \
         && pip install --no-cache-dir --upgrade pip \
         && pip install --no-cache-dir awscli \

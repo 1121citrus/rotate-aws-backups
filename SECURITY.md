@@ -112,52 +112,37 @@ HIGH/CRITICAL vulnerabilities.
 
 ## Known vulnerabilities
 
-**Trivy gate status (as of 2026-05-14): PASS — no unfixed HIGH/CRITICAL CVEs.**
-Trivy scans every CI build and fails on any unfixed HIGH/CRITICAL finding.
-The items below are reported by Grype and Docker Scout (advisory only) and do
-not block the pipeline.
+**Trivy gate status (as of 2026-06-08): PASS - no unfixed HIGH/CRITICAL CVEs.**
+Trivy is the CI gating scanner and fails builds on unfixed HIGH/CRITICAL findings.
 
-**Distinction:** A "fixable" CVE has a patch available but not yet deployed.
-An "unfixed" CVE has no patch available from any vendor.
+### Scanner reconciliation on current image
 
-### Advisory-only findings (Grype / Docker Scout)
+Image analyzed: `1121citrus/rotate-aws-backups:latest` (digest `297e8848eae8`).
 
-#### Alpine APK packages — no upstream fix available
+- Trivy (gating): `0C / 0H`.
+- Docker Scout (advisory): `0C / 1H / 11M / 2L`.
+- Grype (advisory, direct run with DB update): reports additional Python binary
+  CVEs (`2C / 2H`) that are not yet fixable on a stable Alpine Python package.
 
-| CVE | Package | Severity | Notes |
-| --- | --- | --- | --- |
-| CVE-2016-2781 | `coreutils 9.7-r1` | MEDIUM | Affects `chroot`; `chroot` is not used in this container. No upstream fix ever. |
-| CVE-2025-60876 | `busybox 1.37.0-r20` | MEDIUM | No Alpine fix available. |
-| CVE-2025-70873 | `sqlite-libs 3.49.2-r1` | HIGH | No Alpine fix available. |
+The stale outputs from earlier runs (before rebuild/re-tag) included superseded
+findings tied to older image layers and are not representative of the current
+`latest` image.
 
-#### `gojq` (apk) — embedded Go stdlib compiled with go1.24.12
+### Unfixable HIGH/CRITICAL findings (current)
 
-The Alpine `gojq` package is compiled with Go 1.24.12; the fix requires a
-new Alpine package built with Go ≥ 1.25.10 / ≥ 1.26.3.
-`gojq` does not accept network input in this container, limiting exposure.
+| Scanner | Package | CVE | Severity | Fix status | Notes |
+| --- | --- | --- | --- | --- | --- |
+| Docker Scout | `jq 1.8.1-r0` | CVE-2026-32316 | HIGH | Not fixed | Alpine 3.23 package feed has no patched release yet. |
+| Grype | `python 3.14.5` | CVE-2026-6100 | CRITICAL | Not fixed | No stable Alpine-provided fix available. |
+| Grype | `python 3.14.5` | CVE-2026-7210 | CRITICAL | 3.15.0b2 | Fix target is Python 3.15 prerelease; not deployed in stable Alpine base. |
+| Grype | `python 3.14.5` | CVE-2026-3298 | HIGH | Not fixed | No stable Alpine-provided fix available. |
+| Grype | `python 3.14.5` | CVE-2026-4786 | HIGH | Not fixed | `webbrowser.open()` path is not used in this container runtime. |
 
-| CVE | Severity | Fixed in Go |
-| --- | --- | --- |
-| CVE-2026-25679 | HIGH | ≥ 1.25.8 / ≥ 1.26.1 |
-| CVE-2026-27140 | HIGH | ≥ 1.25.9 / ≥ 1.26.2 |
-| CVE-2026-32280 | HIGH | ≥ 1.25.9 / ≥ 1.26.2 |
-| CVE-2026-32281 | HIGH | ≥ 1.25.9 / ≥ 1.26.2 |
-| CVE-2026-32283 | HIGH | ≥ 1.25.9 / ≥ 1.26.2 |
-| CVE-2026-27143 | CRITICAL | ≥ 1.25.9 / ≥ 1.26.2 |
-| CVE-2025-68121 | CRITICAL | ≥ 1.24.13 / ≥ 1.25.7 |
-| CVE-2026-33811 | HIGH | ≥ 1.25.10 / ≥ 1.26.3 |
-| CVE-2026-33814 | HIGH | ≥ 1.25.10 / ≥ 1.26.3 |
-| CVE-2026-39820 | HIGH | ≥ 1.25.10 / ≥ 1.26.3 |
-| CVE-2026-39836 | HIGH | ≥ 1.25.10 / ≥ 1.26.3 |
-| CVE-2026-42499 | HIGH | ≥ 1.25.10 / ≥ 1.26.3 |
+### Advisory medium/low findings
 
-#### Python 3.14 binary — no fix in Alpine yet
-
-| CVE | Severity | Notes |
-| --- | --- | --- |
-| CVE-2026-6100 | CRITICAL | Use-after-free in decompression; no Alpine fix available. |
-| CVE-2026-3298 | HIGH | No Alpine fix available. |
-| CVE-2026-4786 | HIGH | `webbrowser.open()` command injection; `webbrowser` is not used in this container. |
+Scanner reports also include medium/low items with no current upstream APK fix,
+including `CVE-2025-60876` (`busybox`) and `CVE-2016-2781` (`coreutils`).
+These remain tracked but are non-gating.
 
 ---
 
@@ -172,11 +157,14 @@ new Alpine package built with Go ≥ 1.25.10 / ≥ 1.26.3.
 | CVE-2024-3651 | `idna` (PyPI) | Pinned `idna>=3.7`; raised to `idna>=3.15` (2026-05-14), then `idna>=3.16` (2026-05-23) |
 | CVE-2024-5569 | `zipp` (PyPI) | Pinned `zipp>=3.19.1`; raised to `zipp>=4.1.0` (2026-05-23) |
 | CVE-2024-53427, CVE-2025-48060, CVE-2024-23337 | `jq` (APK) | Base image bump to `python:3.14-alpine3.22` |
+| multiple | base OS packages | Base image bump to `python:3.14-alpine3.23` (2026-06-08) |
 | CVE-2025-8869, CVE-2026-1703 | `pip` (system Python) | Upgraded system Python pip to ≥26.0 |
 | CVE-2024-12797 | `cryptography` (PyPI) | Resolved by `cryptography>=46.0.5` pin |
 | CVE-2024-6345 | `setuptools` (PyPI) | Pinned `setuptools>=78.1.0` in both Python envs |
 | CVE-2026-32280, CVE-2026-32282, CVE-2026-33810 | `supercronic` Go stdlib | Built supercronic from source with `golang:1.26.2-alpine` |
 | CVE-2026-33811, CVE-2026-33814, CVE-2026-39820, CVE-2026-39836, CVE-2026-42499 | `supercronic` Go stdlib | Upgraded builder to `golang:1.26.3-alpine` (2026-05-14) |
+| CVE-2026-25679, CVE-2026-27140, CVE-2026-32280, CVE-2026-32281, CVE-2026-32283, CVE-2026-27143, CVE-2025-68121, CVE-2026-33811, CVE-2026-33814, CVE-2026-39820, CVE-2026-39836, CVE-2026-42499 | `gojq` (APK, Go stdlib exposure) | Removed `gojq` dependency; switched to native `jq` package (2026-06-08) |
+| CVE-2026-42504 | `supercronic` Go stdlib | Rebuilt current image and verified scanner results on rebuilt `latest` to eliminate stale image-layer finding (2026-06-08) |
 
 ## Reporting vulnerabilities
 
