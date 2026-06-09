@@ -7,6 +7,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.1.16] - 2026-06-09
+
+### Changed
+
+- Bump base image to `python:3.14-alpine3.23` and replace `gojq` with native
+  Alpine `jq`
+- Correct `PYTHON_VERSION` export to `3.14` in the runtime image
+- Add retry handling for transient S3 upload propagation in staging E2E fixture
+  setup
+- Refresh security documentation with current scanner reconciliation and
+  unfixable findings
+- Regenerate the build script to align with current staging and scanner flow
+
 ## [1.1.15] - 2026-05-23
 
 ### Changed
@@ -102,7 +115,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Initial release
 
-[Unreleased]: https://github.com/1121citrus/rotate-aws-backups/compare/v1.1.15...HEAD
+[Unreleased]: https://github.com/1121citrus/rotate-aws-backups/compare/v1.1.16...HEAD
+[1.1.16]: https://github.com/1121citrus/rotate-aws-backups/compare/v1.1.15...v1.1.16
 [1.1.15]: https://github.com/1121citrus/rotate-aws-backups/compare/d365a23...8bdce26
 [1.1.14]: https://github.com/1121citrus/rotate-aws-backups/compare/v1.1.13...v1.1.14
 [1.1.13]: https://github.com/1121citrus/rotate-aws-backups/compare/v1.1.12...v1.1.13
