@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Security
+
+- Raise `cryptography` minimum to `>=48.0.1` (Dependabot PR #19)
+- Rebuild image to pick up `openssl 3.5.7-r0` from Alpine 3.23, resolving
+  CVE-2026-34182 (CRITICAL) and seven HIGH openssl CVEs reported by Docker Scout
+
 ## [1.1.16] - 2026-06-09
 
 ### Changed
