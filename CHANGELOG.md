@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.1.17] - 2026-06-10
+
 ### Security
 
 - Raise `cryptography` minimum to `>=48.0.1` (Dependabot PR #19)
@@ -121,7 +123,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Initial release
 
-[Unreleased]: https://github.com/1121citrus/rotate-aws-backups/compare/v1.1.16...HEAD
+[Unreleased]: https://github.com/1121citrus/rotate-aws-backups/compare/v1.1.17...HEAD
+[1.1.17]: https://github.com/1121citrus/rotate-aws-backups/compare/v1.1.16...v1.1.17
 [1.1.16]: https://github.com/1121citrus/rotate-aws-backups/compare/v1.1.15...v1.1.16
 [1.1.15]: https://github.com/1121citrus/rotate-aws-backups/compare/d365a23...8bdce26
 [1.1.14]: https://github.com/1121citrus/rotate-aws-backups/compare/v1.1.13...v1.1.14
