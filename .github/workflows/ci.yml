@@ -30,6 +30,6 @@ jobs:
         test/06-rotate-aws-backups.bats
       smoke-enabled: true
       smoke-commands: |
-        docker run --rm "${IMAGE}:${VERSION}" bash -c 'test -x /usr/local/bin/rotate-aws-backups'
-        docker run --rm "${IMAGE}:${VERSION}" /usr/local/bin/rotate-aws-backups --help
+        docker run --rm --entrypoint bash "${IMAGE}:${VERSION}" -c 'test -x /usr/local/bin/rotate-aws-backups'
+        docker run --rm "${IMAGE}:${VERSION}" --help
     secrets: inherit
