@@ -124,7 +124,7 @@ RUN adduser \
            /var/log/rotate-aws-backups \
            /var/log/rotate-aws-backups/rotate-backups.log
 
-COPY --chmod=644 ./src/include/common-functions /usr/local/include/
+COPY --chmod=644 ./include/common-functions /usr/local/include/
 COPY --chmod=755  ./src/healthcheck ./src/rotate ./src/rotate-aws-backups \
                   ./src/startup /usr/local/bin/
 
