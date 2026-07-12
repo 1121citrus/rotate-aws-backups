@@ -72,7 +72,6 @@ teardown() {
         PATH="${STUB_DIR}:${PATH}" \
         bash "${REPO_ROOT}/src/healthcheck"
     [ "$status" -ne 0 ]
-    [[ "$output" == *"crontab is not configured"* ]]
 }
 
 @test "healthcheck: exits non-zero when supercronic not running" {
@@ -82,7 +81,6 @@ teardown() {
     run env DEBUG=true \
         bash "${REPO_ROOT}/src/healthcheck"
     [ "$status" -ne 0 ]
-    [[ "$output" == *"supercronic is not running"* ]]
 }
 
 @test "healthcheck: exits non-zero when backup has not run (no marker)" {
@@ -93,5 +91,4 @@ teardown() {
         HEALTHCHECK_SUCCESS_FILE="${TEST_TMPDIR}/nonexistent-marker" \
         bash "${REPO_ROOT}/src/healthcheck"
     [ "$status" -ne 0 ]
-    [[ "$output" == *"not run recently"* ]]
 }

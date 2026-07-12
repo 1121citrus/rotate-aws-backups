@@ -112,14 +112,16 @@ HIGH/CRITICAL vulnerabilities.
 
 ## Known vulnerabilities
 
-**Trivy gate status (as of 2026-06-10): PASS - no unfixed HIGH/CRITICAL CVEs.**
-Trivy is the CI gating scanner and fails builds on unfixed HIGH/CRITICAL findings.
+**Trivy gate status (as of 2026-07-12): PASS with reviewed exceptions.**
+Trivy is the CI gating scanner and fails builds on unfixed HIGH/CRITICAL findings,
+except CVEs explicitly listed in `.trivyignore` after security review.
 
 ### Scanner reconciliation on current image
 
-Image analyzed: `1121citrus/rotate-aws-backups:latest` (digest `63c437a3fd45`).
+Image analyzed: `1121citrus/rotate-aws-backups:latest` (digest `5073c0842f19`).
 
-- Trivy (gating): `0C / 0H`.
+- Trivy (gating): `0C / 0H` after applying reviewed entries from
+  `.trivyignore`.
 - Docker Scout (advisory): `0C / 1H / 11M / 2L`.
 - Grype (advisory, direct run with DB update): reports additional Python binary
   CVEs (`2C / 2H`) that are not yet fixable on a stable Alpine Python package.
@@ -129,6 +131,8 @@ Image analyzed: `1121citrus/rotate-aws-backups:latest` (digest `63c437a3fd45`).
 | Scanner | Package | CVE | Severity | Fix status | Notes |
 | --- | --- | --- | --- | --- | --- |
 | Docker Scout | `jq 1.8.1-r0` | CVE-2026-32316 | HIGH | Not fixed | Alpine 3.23 package feed has no patched release yet. |
+| Trivy / Docker Scout | `sqlite 3.51.2-r0` | CVE-2026-11822 | HIGH | Not fixed | Alpine 3.23 package feed has no patched release yet. |
+| Trivy / Docker Scout | `sqlite 3.51.2-r0` | CVE-2026-11824 | HIGH | Not fixed | Alpine 3.23 package feed has no patched release yet. |
 | Grype | `python 3.14.5` | CVE-2026-6100 | CRITICAL | Not fixed | No stable Alpine-provided fix available. |
 | Grype | `python 3.14.5` | CVE-2026-7210 | CRITICAL | 3.15.0b2 | Fix target is Python 3.15 prerelease; not deployed in stable Alpine base. |
 | Grype | `python 3.14.5` | CVE-2026-3298 | HIGH | Not fixed | No stable Alpine-provided fix available. |
@@ -161,6 +165,7 @@ These remain tracked but are non-gating.
 | CVE-2026-33811, CVE-2026-33814, CVE-2026-39820, CVE-2026-39836, CVE-2026-42499 | `supercronic` Go stdlib | Upgraded builder to `golang:1.26.3-alpine` (2026-05-14) |
 | CVE-2026-25679, CVE-2026-27140, CVE-2026-32280, CVE-2026-32281, CVE-2026-32283, CVE-2026-27143, CVE-2025-68121, CVE-2026-33811, CVE-2026-33814, CVE-2026-39820, CVE-2026-39836, CVE-2026-42499 | `gojq` (APK, Go stdlib exposure) | Removed `gojq` dependency; switched to native `jq` package (2026-06-08) |
 | CVE-2026-42504 | `supercronic` Go stdlib | Rebuilt current image and verified scanner results on rebuilt `latest` to eliminate stale image-layer finding (2026-06-08) |
+| CVE-2026-39822 | `supercronic` Go stdlib | Upgraded builder to `golang:1.26.5-alpine` (2026-07-12) |
 | multiple | `cryptography` (PyPI) | Raised floor to `cryptography>=48.0.1` (2026-06-10) |
 | CVE-2026-34182 (CRITICAL), CVE-2026-45447, CVE-2026-7383, CVE-2026-9076, CVE-2026-45445, CVE-2026-42764, CVE-2026-34183, CVE-2026-34180 | `openssl` (APK) | APK upgrade to `openssl 3.5.7-r0` via image rebuild (2026-06-10) |
 

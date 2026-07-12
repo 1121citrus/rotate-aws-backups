@@ -1,0 +1,13 @@
+# Accepted Trivy exceptions for rotate-aws-backups image.
+#
+# Last reviewed: 2026-07-12
+# Scope: Trivy gating scan only (HIGH/CRITICAL, ignore-unfixed)
+#
+# jq 1.8.1-r0 from Alpine 3.23 currently has no patched package in the
+# upstream feed used by the base image.
+CVE-2026-32316
+
+# sqlite 3.51.2-r0 from Alpine 3.23 currently has no patched package in
+# the upstream feed used by the base image.
+CVE-2026-11822
+CVE-2026-11824

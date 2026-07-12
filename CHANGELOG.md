@@ -7,6 +7,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.1.19] - 2026-07-12
+
+### Changed
+
+- Make `build` honor repository `.trivyignore` entries during the gating
+  Trivy scan.
+- Make `test/staging` default to repository `.trivyignore` for Trivy scan
+  exceptions.
+- Stabilize `test/07-source-coverage.bats` healthcheck negative-path
+  assertions by checking non-zero exit status only.
+
+### Security
+
+- Add `.trivyignore` with reviewed temporary exceptions for
+  `CVE-2026-32316` (`jq`) and `CVE-2026-11822`/`CVE-2026-11824`
+  (`sqlite`) until patched Alpine packages are available.
+- Upgrade supercronic builder image from `golang:1.26.4-alpine` to
+  `golang:1.26.5-alpine` to resolve `CVE-2026-39822` in embedded Go
+  stdlib.
+- Refresh `SECURITY.md` scanner reconciliation and Trivy gate notes.
+
 ## [1.1.18] - 2026-07-12
 
 ### Changed
@@ -147,7 +168,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Initial release
 
-[Unreleased]: https://github.com/1121citrus/rotate-aws-backups/compare/v1.1.18...HEAD
+[Unreleased]: https://github.com/1121citrus/rotate-aws-backups/compare/v1.1.19...HEAD
+[1.1.19]: https://github.com/1121citrus/rotate-aws-backups/compare/v1.1.18...v1.1.19
 [1.1.18]: https://github.com/1121citrus/rotate-aws-backups/compare/v1.1.17...v1.1.18
 [1.1.17]: https://github.com/1121citrus/rotate-aws-backups/compare/v1.1.16...v1.1.17
 [1.1.16]: https://github.com/1121citrus/rotate-aws-backups/compare/v1.1.15...v1.1.16
