@@ -7,6 +7,30 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.1.18] - 2026-07-12
+
+### Changed
+
+- Regenerate `test/run-all` under generator control and update CI caller
+  workflow wiring to `shared-github-workflows/.github/workflows/pipeline.yml@v1`.
+- Canonicalize shared shell helpers under `include/common-functions` and
+  keep `src/include/common-functions` as a compatibility shim.
+- Update container packaging to copy `include/common-functions` into
+  `/usr/local/include/common-functions`.
+
+### Security
+
+- Bump `cryptography` floor in `requirements.txt` from `>=48.0.1` to
+  `>=49.0.0`.
+- Bump `actions/checkout` in gitleaks CI workflow from `v6.0.3` to
+  `v7.0.0`.
+
+### Fixed
+
+- Grant `permissions.contents: write` in `.github/workflows/ci.yml` so
+  reusable shared pipeline validation does not fail with GitHub Actions
+  `startup_failure`.
+
 ## [1.1.17] - 2026-06-10
 
 ### Security
@@ -123,7 +147,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Initial release
 
-[Unreleased]: https://github.com/1121citrus/rotate-aws-backups/compare/v1.1.17...HEAD
+[Unreleased]: https://github.com/1121citrus/rotate-aws-backups/compare/v1.1.18...HEAD
+[1.1.18]: https://github.com/1121citrus/rotate-aws-backups/compare/v1.1.17...v1.1.18
 [1.1.17]: https://github.com/1121citrus/rotate-aws-backups/compare/v1.1.16...v1.1.17
 [1.1.16]: https://github.com/1121citrus/rotate-aws-backups/compare/v1.1.15...v1.1.16
 [1.1.15]: https://github.com/1121citrus/rotate-aws-backups/compare/d365a23...8bdce26
