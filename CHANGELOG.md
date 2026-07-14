@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.1.20] - 2026-07-14
+
+### Changed
+
+- Add repository-local `.github/workflows/pipeline.yml` so the reusable CI
+  pipeline definition is tracked directly in this repo.
+
 ## [1.1.19] - 2026-07-12
 
 ### Changed
