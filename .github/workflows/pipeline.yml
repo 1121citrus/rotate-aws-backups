@@ -1,0 +1,473 @@
+name: Pipeline
+
+# Reusable full CI pipeline for 1121citrus Docker image repos.
+#
+# Orchestrates: lint → build → (test ‖ scan ‖ smoke-test) → push.
+#
+# The lint job runs ./build 1 so local and CI lint are identical.
+# The test job branches on test-mode; only modes that need the image
+# download the docker-image artifact.
+# The smoke-test job is skipped when smoke-enabled is false.
+# The push job runs only on v* tag pushes after all gate stages pass.
+#
+# Behavior change vs hand-edited ci.yml files:
+#   - bats-docker-cli mode: tests the NEW built image (from artifact)
+#     rather than the previously published :latest from DockerHub.
+#   - test always runs after build (never parallel with build) to
+#     simplify the dependency graph.
+#
+# Usage:
+#   jobs:
+#     ci:
+#       uses: 1121citrus/shared-github-workflows/.github/workflows/pipeline.yml@v1
+#       with:
+#         image: 1121citrus/myapp
+#         test-mode: bats-docker-cli
+#         test-bats-files: |
+#           test/01-build.bats
+#           test/02-image-contents.bats
+#         smoke-enabled: true
+#         smoke-commands: |
+#           docker run --rm "${IMAGE}:${VERSION}" bash --version
+#       secrets: inherit
+
+on:
+  workflow_call:
+    inputs:
+
+      # ── Image ───────────────────────────────────────────────────────────────
+      image:
+        description: Docker Hub image name (e.g. 1121citrus/myapp)
+        required: true
+        type: string
+      inject-metadata:
+        description: >
+          Inject VERSION, GIT_COMMIT, and BUILD_DATE as build-args.
+          Set for images whose tests verify these values at runtime.
+        type: boolean
+        default: false
+
+      # ── Test stage ──────────────────────────────────────────────────────────
+      test-mode:
+        description: >
+          Test execution mode. One of:
+            bats            — bats tests against source mount (no image).
+            bats-docker-cli — bats tests using built image + Docker socket.
+            run-all         — arbitrary script; image available via IMAGE env.
+            run-all-image   — like run-all but wrapped in bats container
+                              with Docker socket and docker-cli installed.
+            custom-sh       — arbitrary shell command on the host runner.
+        required: true
+        type: string
+      test-bats-files:
+        description: >
+          Whitespace/newline-separated list of .bats files (or a directory)
+          passed directly to bats. Used by: bats, bats-docker-cli.
+        type: string
+        default: ''
+      test-run-all-cmd:
+        description: >
+          Shell command that invokes the test harness.
+          Used by: run-all, run-all-image.
+        type: string
+        default: ''
+      test-custom-cmd:
+        description: >
+          Arbitrary shell command run on the host runner.
+          Used by: custom-sh.
+        type: string
+        default: ''
+      test-extra-packages:
+        description: >
+          Space-separated Alpine packages installed inside the bats
+          container before running tests (e.g. gnupg).
+          Used by: bats-docker-cli, run-all-image.
+        type: string
+        default: ''
+      test-pre-command:
+        description: >
+          Shell command run on the host runner before the main test
+          command. Use for fixture generation or other pre-test setup.
+        type: string
+        default: ''
+
+      # ── Smoke-test stage ────────────────────────────────────────────────────
+      smoke-enabled:
+        description: Run the smoke-test stage after build.
+        type: boolean
+        default: false
+      smoke-commands:
+        description: >
+          Newline-delimited list of shell commands executed as smoke
+          tests. Each must exit 0. Commands may reference ${IMAGE}
+          (full image name, e.g. 1121citrus/myapp) and ${VERSION}
+          (always "latest" in CI).
+        type: string
+        default: ''
+
+      # ── Scan stage ──────────────────────────────────────────────────────────
+      trivyignore:
+        description: >
+          Path to a Trivy ignore file (e.g. .trivyignore or
+          .trivyignore.yaml). Leave empty to skip loading an ignore file.
+        type: string
+        default: ''
+
+      # ── Push stage ──────────────────────────────────────────────────────────
+      force-push:
+        description: >
+          Push the image even on non-tag builds (e.g. a dev branch).
+          Useful for debugging. Branch builds are tagged with the branch
+          name (e.g. :dev). Tag builds always push regardless of this flag.
+          PRs are never pushed.
+        type: boolean
+        default: false
+
+      # ── Promote stage ──────────────────────────────────────────────────────
+      auto-promote:
+        description: >
+          Automated promotion mode after a successful CI run on dev.
+            off        — no action (default)
+            bump-only  — commit version bump + CHANGELOG on dev; merge+tag manual
+            full       — bump + fast-forward merge dev→main + atomic push dev/main/tag
+        type: string
+        default: off
+
+    secrets:
+      DOCKERHUB_USERNAME:
+        required: false
+      DOCKERHUB_TOKEN:
+        required: false
+      PROMOTE_TOKEN:
+        required: false
+
+permissions:
+  contents: read
+
+jobs:
+
+  # ── Stage 1: Lint ────────────────────────────────────────────────────────────
+  lint:
+    uses: 1121citrus/shared-github-workflows/.github/workflows/lint.yml@v1
+
+  # ── Stage 2: Build ───────────────────────────────────────────────────────────
+  build:
+    needs: lint
+    uses: 1121citrus/shared-github-workflows/.github/workflows/build.yml@v1
+    with:
+      image: ${{ inputs.image }}
+      inject-metadata: ${{ inputs.inject-metadata }}
+
+  # ── Stage 3: Test ────────────────────────────────────────────────────────────
+  # Runs after build so the docker-image artifact is available for image-dependent
+  # modes.  The bats (source-mount) and custom-sh modes skip the artifact download.
+  test:
+    needs: [lint, build]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+
+      - name: Download image artifact
+        if: >
+          inputs.test-mode != 'bats' &&
+          inputs.test-mode != 'custom-sh'
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          name: docker-image
+          path: /tmp
+
+      - name: Load image
+        if: >
+          inputs.test-mode != 'bats' &&
+          inputs.test-mode != 'custom-sh'
+        run: gunzip -c /tmp/image.tar.gz | docker load
+
+      - name: Pre-test command
+        if: inputs.test-pre-command != ''
+        run: ${{ inputs.test-pre-command }}
+
+      # bats: static source-mount tests; no image required.
+      # Source is mounted read-only at /code; workdir is /code.
+      - name: Run tests (bats)
+        if: inputs.test-mode == 'bats'
+        env:
+          BATS_FILES: ${{ inputs.test-bats-files }}
+        run: |
+          # shellcheck disable=SC2086
+          docker run -i --rm \
+            -v "$PWD:/code:ro" \
+            -w /code \
+            bats/bats:1.13.0 \
+            ${BATS_FILES}
+
+      # bats-docker-cli: image-based tests; needs built image and Docker socket.
+      # Source is mounted at host path so nested docker run -v paths resolve.
+      - name: Run tests (bats-docker-cli)
+        if: inputs.test-mode == 'bats-docker-cli'
+        env:
+          IMAGE: ${{ inputs.image }}
+          BATS_FILES: ${{ inputs.test-bats-files }}
+          EXTRA_PACKAGES: ${{ inputs.test-extra-packages }}
+        run: |
+          pkgs="docker-cli${EXTRA_PACKAGES:+ ${EXTRA_PACKAGES}}"
+          # Convert newline-separated file list to space-separated so it is
+          # safe to embed inside a double-quoted sh -c string.  Leaving
+          # newlines in place makes sh treat each filename as a separate
+          # command, causing "Permission denied" on non-executable .bats files.
+          bats_args=$(printf '%s' "${BATS_FILES}" | tr '\n' ' ')
+          # shellcheck disable=SC2086
+          docker run -i --rm \
+            -v "$PWD:$PWD" \
+            -v /tmp:/tmp \
+            -v /var/run/docker.sock:/var/run/docker.sock \
+            -e "IMAGE=${IMAGE}:latest" \
+            --workdir "$PWD" \
+            --entrypoint sh \
+            bats/bats:1.13.0 \
+            -c "apk add --quiet --no-cache ${pkgs} >/dev/null 2>&1 \
+                && bats ${bats_args}"
+
+      # run-all: delegates to repo's own test harness on the host runner.
+      - name: Run tests (run-all)
+        if: inputs.test-mode == 'run-all'
+        env:
+          IMAGE: ${{ inputs.image }}
+        run: IMAGE="${IMAGE}:latest" ${{ inputs.test-run-all-cmd }}
+
+      # run-all-image: harness wrapped in bats container with Docker socket.
+      - name: Run tests (run-all-image)
+        if: inputs.test-mode == 'run-all-image'
+        env:
+          IMAGE: ${{ inputs.image }}
+          EXTRA_PACKAGES: ${{ inputs.test-extra-packages }}
+          RUN_ALL_CMD: ${{ inputs.test-run-all-cmd }}
+        run: |
+          pkgs="docker-cli${EXTRA_PACKAGES:+ ${EXTRA_PACKAGES}}"
+          docker run --rm -i \
+            -v "$PWD:$PWD" \
+            -v /tmp:/tmp \
+            -v /var/run/docker.sock:/var/run/docker.sock \
+            -e "IMAGE=${IMAGE}:latest" \
+            --workdir "$PWD" \
+            --entrypoint sh \
+            bats/bats:1.13.0 \
+            -c "apk add --quiet --no-cache ${pkgs} >/dev/null 2>&1 \
+                && ${RUN_ALL_CMD}"
+
+      # custom-sh: arbitrary host command; IMAGE and VERSION are available.
+      # VERSION is always "latest" in CI so ${VERSION:-test} patterns resolve.
+      - name: Run tests (custom-sh)
+        if: inputs.test-mode == 'custom-sh'
+        env:
+          IMAGE: ${{ inputs.image }}
+          VERSION: latest
+        run: ${{ inputs.test-custom-cmd }}
+
+  # ── Stage 3 (parallel): Smoke test ──────────────────────────────────────────
+  smoke-test:
+    needs: build
+    if: ${{ inputs.smoke-enabled }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+
+      - name: Download image artifact
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          name: docker-image
+          path: /tmp
+
+      - name: Load image
+        run: gunzip -c /tmp/image.tar.gz | docker load
+
+      - name: Run smoke tests
+        env:
+          IMAGE: ${{ inputs.image }}
+          full_image: ${{ inputs.image }}
+          VERSION: latest
+          SMOKE_COMMANDS: ${{ inputs.smoke-commands }}
+        run: |
+          while IFS= read -r cmd; do
+            [[ -z "${cmd}" ]] && continue
+            echo "--- ${cmd}"
+            eval "${cmd}"
+          done <<< "${SMOKE_COMMANDS}"
+
+  # ── Stage 4: Security scan ───────────────────────────────────────────────────
+  scan:
+    needs: build
+    uses: 1121citrus/shared-github-workflows/.github/workflows/scan.yml@v1
+    with:
+      image: ${{ inputs.image }}
+      trivyignore: ${{ inputs.trivyignore }}
+
+  # ── Stage 5: Push to Docker Hub ─────────────────────────────────────────────
+  # Default: runs only on v* tag pushes after all gate stages pass.
+  # force-push: also runs on branch builds (tagged with branch name).
+  # PRs (refs/pull/*) are always excluded.
+  # smoke-test is allowed to be skipped (when smoke-enabled is false).
+  #
+  # always() is required: without it GitHub auto-skips this job whenever
+  # smoke-test is skipped, regardless of how the if expression evaluates.
+  # From the docs: "if a required dependency was skipped, the job is also
+  # skipped even if the if conditional evaluates to true."
+  #
+  # github.event_name is 'workflow_call' inside a reusable workflow (not
+  # 'push'), so use github.ref to distinguish tag / branch / PR.
+  push:
+    needs: [test, scan, smoke-test]
+    if: >
+      always() &&
+      !startsWith(github.ref, 'refs/pull/') &&
+      (startsWith(github.ref, 'refs/tags/v') || inputs.force-push) &&
+      needs.test.result == 'success' &&
+      needs.scan.result == 'success' &&
+      (needs.smoke-test.result == 'success' ||
+       needs.smoke-test.result == 'skipped')
+    uses: 1121citrus/shared-github-workflows/.github/workflows/push.yml@v1
+    with:
+      image: ${{ inputs.image }}
+      force-push: ${{ inputs.force-push }}
+    secrets: inherit
+
+  # ── Stage 6: Promote ────────────────────────────────────────────────────────
+  # Runs only on dev branch pushes after all gate stages pass.
+  # Computes the next semver from conventional commit prefixes, updates
+  # version.txt and CHANGELOG.md, commits, and optionally fast-forward
+  # merges dev→main and pushes an annotated tag.
+  #
+  # Loop safety: the promote commit itself re-triggers CI on dev. The inline
+  # script detects its own commit subject (chore(release): bump) and exits
+  # cleanly, so the pipeline terminates after exactly two dev-branch runs
+  # (the original push and the bump commit push).
+  promote:
+    needs: [test, scan, smoke-test]
+    if: >
+      always() &&
+      inputs.auto-promote != 'off' &&
+      github.ref == 'refs/heads/dev' &&
+      needs.test.result == 'success' &&
+      needs.scan.result == 'success' &&
+      (needs.smoke-test.result == 'success' ||
+       needs.smoke-test.result == 'skipped')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        with:
+          fetch-depth: 0   # git describe --tags needs full history
+          token: ${{ secrets.PROMOTE_TOKEN || github.token }}
+
+      - name: Promote
+        env:
+          AUTO_PROMOTE:   ${{ inputs.auto-promote }}
+          PROMOTE_TOKEN:  ${{ secrets.PROMOTE_TOKEN }}
+          GIT_USER_NAME:  CI Automation
+          GIT_USER_EMAIL: noreply@github.com
+        run: |
+          set -euo pipefail
+
+          _log()  { printf '[promote] %s\n' "${*}"; }
+          _die()  { printf '[promote] error: %s\n' "${*}" >&2; exit 1; }
+          _skip() { _log "${*} — no action"; exit 0; }
+
+          bump_type() {
+              local last_tag
+              last_tag=$(git describe --tags --abbrev=0 2>/dev/null) \
+                  || _die "no previous tag found"
+              local n_commits
+              n_commits=$(git log "${last_tag}..HEAD" --oneline -- \
+                          | wc -l | tr -d ' ')
+              [[ "${n_commits}" -gt 0 ]] \
+                  || _skip "no commits since ${last_tag}"
+              local log
+              log=$(git log "${last_tag}..HEAD" --format='%s%n%b' --)
+              echo "${log}" | grep -qF '[skip-promote]' \
+                  && _skip "[skip-promote] found in commits since ${last_tag}"
+              echo "${log}" | grep -qE '^(feat|fix)!:|^BREAKING CHANGE' \
+                  && { echo major; return; }
+              echo "${log}" | grep -qE '^feat(\([^)]+\))?:' \
+                  && { echo minor; return; }
+              echo patch
+          }
+
+          next_ver() {
+              local maj min pat
+              IFS='.' read -r maj min pat <<< "${1}"
+              case "${2}" in
+                  major) printf '%s\n' "$(( maj + 1 )).0.0"           ;;
+                  minor) printf '%s\n' "${maj}.$(( min + 1 )).0"      ;;
+                  patch) printf '%s\n' "${maj}.${min}.$(( pat + 1 ))" ;;
+                  *)     _die "unknown bump type: ${2}"                ;;
+              esac
+          }
+
+          update_files() {
+              local new="${1}" prev="${2}"
+              local date; date=$(date -u +%Y-%m-%d)
+              [[ -f version.txt ]] || _die "version.txt not found"
+              [[ -f CHANGELOG.md ]] || _die "CHANGELOG.md not found"
+              printf '%s\n' "${new}" > version.txt
+              grep -q '^## \[Unreleased\]$' CHANGELOG.md \
+                  || _die "no bare '## [Unreleased]' header in CHANGELOG.md"
+              sed -i \
+                  "s|^## \[Unreleased\]$|## [Unreleased]\n\n---\n\n## [${new}] — ${date}|" \
+                  CHANGELOG.md
+              local base
+              base=$(grep '^\[Unreleased\]:' CHANGELOG.md \
+                     | sed 's|\[Unreleased\]: \(.*\)/compare/.*|\1|')
+              [[ -n "${base}" ]] \
+                  || _die "cannot parse base URL from [Unreleased] ref link"
+              sed -i \
+                  "s|\[Unreleased\]: .*/compare/.*|\[Unreleased\]: ${base}/compare/v${new}...HEAD|" \
+                  CHANGELOG.md
+              local new_link="[${new}]: ${base}/compare/v${prev}...v${new}"
+              sed -i \
+                  "s|^\(\[Unreleased\]:.*\)$|\1\n${new_link}|" \
+                  CHANGELOG.md
+          }
+
+          git config user.name  "${GIT_USER_NAME}"
+          git config user.email "${GIT_USER_EMAIL}"
+
+          if git log -1 --format='%s' | grep -q '^chore(release): bump'; then
+              _skip "last commit is a promote commit"
+          fi
+
+          cur=$(cat version.txt)
+          bump=$(bump_type)
+          new=$(next_ver "${cur}" "${bump}")
+          _log "current=${cur}  bump=${bump}  new=${new}"
+
+          [[ "${cur}" != "${new}" ]] || _skip "version.txt already at ${new}"
+
+          update_files "${new}" "${cur}"
+          git add version.txt CHANGELOG.md
+          git commit -m "chore(release): bump to ${new}"
+
+          if [[ "${AUTO_PROMOTE}" != "full" ]]; then
+              git push origin dev
+              _log "bump-only: v${new} committed on dev"
+              _log "  to promote manually: git push --atomic origin main v${new}"
+              exit 0
+          fi
+
+          # full mode requires a PAT so the pushed tag triggers a new CI run.
+          # GITHUB_TOKEN pushes are silently ignored by the workflow engine.
+          if [[ -z "${PROMOTE_TOKEN:-}" ]]; then
+              git push origin dev
+              _log "PROMOTE_TOKEN not set — degraded to bump-only"
+              _log "  set PROMOTE_TOKEN (PAT, contents:write) to enable full promote"
+              exit 0
+          fi
+
+          git fetch origin main
+          git merge-base --is-ancestor origin/main HEAD \
+              || _die "dev not fast-forwardable into main — resolve divergence"
+          git checkout main
+          git merge --ff-only dev \
+              || _die "--ff-only merge failed"
+          git tag "v${new}"
+          git push --atomic origin dev main "v${new}"
+          _log "promoted: dev + main + v${new} pushed"
