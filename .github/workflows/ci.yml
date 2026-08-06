@@ -16,7 +16,7 @@ permissions:
 
 jobs:
   ci:
-    uses: 1121citrus/shared-github-workflows/.github/workflows/pipeline.yml@ec0925e7ff8286a445c63ab51f90f712aead79b1
+    uses: 1121citrus/shared-github-workflows/.github/workflows/pipeline.yml@8396acc2585d6540131318935746f1947c44a2ef
     with:
       image: 1121citrus/rotate-aws-backups
       inject-metadata: true
