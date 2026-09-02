@@ -19,10 +19,11 @@
 ARG ROTATE_BACKUPS_VERSION=
 ARG VERSION=dev
 # renovate: datasource=github-releases depName=aptible/supercronic
-ARG SUPERCRONIC_VERSION=v0.2.45
+ARG SUPERCRONIC_VERSION=v0.2.49
 
 # ── Supercronic build stage ────────────────────────────────────────────────
-# Builds supercronic from source with Go 1.26.5, which patches:
+# Builds supercronic from source with the golang:1.27.0-alpine toolchain,
+# which patches:
 #   CVE-2026-32280 (crypto/x509 DoS) HIGH
 #   CVE-2026-32282 (os.Root symlink traversal) MEDIUM
 #   CVE-2026-33810 (crypto/x509 cert validation bypass) HIGH
@@ -34,7 +35,7 @@ ARG SUPERCRONIC_VERSION=v0.2.45
 # Remove this stage and restore the wget installation once an upstream
 # supercronic release ships with Go >= 1.26.3 (or >= 1.25.10).
 FROM golang:1.27.0-alpine AS supercronic-builder
-ARG SUPERCRONIC_VERSION=v0.2.45
+ARG SUPERCRONIC_VERSION
 RUN CGO_ENABLED=0 go install github.com/aptible/supercronic@${SUPERCRONIC_VERSION}
 
 # The literal tag lets Dependabot open PRs when a newer python:X.Y.Z-alpineX.Y
@@ -100,7 +101,7 @@ RUN echo "[INFO] start installing rotate-aws-backups" \
                     .write('# pipes was removed in Python 3.13; shlex.quote is the replacement.\nfrom shlex import quote\n')" \
         && rm -f /usr/lib/python${PYTHON_VERSION}/EXTERNALLY-MANAGED \
        && python3 -m ensurepip --upgrade \
-       && python3 -m pip install --no-cache-dir "pip>=26.0" \
+       && python3 -m pip install --no-cache-dir "pip>=26.2.0" \
        && python3 -m pip install --no-cache-dir \
                -r /tmp/requirements.txt \
         && rm /tmp/requirements.txt \
