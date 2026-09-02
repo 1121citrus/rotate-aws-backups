@@ -158,7 +158,6 @@ CACHE_RESET_GRYPE=false
 CACHE_SKIP_UPDATE_TRIVY=false
 CACHE_SKIP_UPDATE_GRYPE=false
 CACHE_WARN_DAYS=${BUILD_CACHE_WARN_DAYS:-1}
-TRIVY_IGNOREFILE=${BUILD_TRIVY_IGNOREFILE:-.trivyignore}
 DRY_RUN=false
 BUILD_REPORT_JSON=${BUILD_REPORT_JSON:-}
 LINT=${BUILD_LINT:-true}
@@ -813,25 +812,18 @@ if [[ "${SCAN}" == "true" ]]; then
     echo "==> Stage 4: Scan ${full_image}:${VERSION}" >&2
 
     _trivy_db_flags=(--skip-db-update --skip-java-db-update)
-    _trivy_ignore_volume=()
-    _trivy_ignore_args=()
-
-    if [[ -n "${TRIVY_IGNOREFILE}" ]] && [[ -f "${script_dir}/${TRIVY_IGNOREFILE}" ]]; then
-        _trivy_ignore_volume=(-v "${script_dir}/${TRIVY_IGNOREFILE}:/.trivyignore:ro")
-        _trivy_ignore_args=(--ignorefile /.trivyignore)
-    fi
 
     run docker run --rm \
         -v "${_scan_tar}:/scan.tar:ro" \
         -v "${TRIVY_CACHE_VOLUME}:/root/.cache/trivy" \
-        "${_trivy_ignore_volume[@]}" \
+        -v "${script_dir}/.trivyignore:/.trivyignore:ro" \
         "${TRIVY_IMAGE}:${TRIVY_TAG}" image \
             --quiet \
             --no-progress \
             --exit-code 1 \
             --ignore-unfixed \
+            --ignorefile /.trivyignore \
             --severity HIGH,CRITICAL \
-            "${_trivy_ignore_args[@]}" \
             --timeout 5m \
             "${_trivy_db_flags[@]}" \
             --input /scan.tar
