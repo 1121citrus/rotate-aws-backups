@@ -112,37 +112,36 @@ HIGH/CRITICAL vulnerabilities.
 
 ## Known vulnerabilities
 
-**Trivy gate status (as of 2026-07-12): PASS with reviewed exceptions.**
+**Trivy gate status (as of 2026-09-02): PASS with no active exceptions.**
 Trivy is the CI gating scanner and fails builds on unfixed HIGH/CRITICAL findings,
-except CVEs explicitly listed in `.trivyignore` after security review.
+except CVEs explicitly listed in `.trivyignore` after security review. No
+`.trivyignore` entries are currently in force.
 
 ### Scanner reconciliation on current image
 
-Image analyzed: `1121citrus/rotate-aws-backups:latest` (digest `5073c0842f19`).
+Image analyzed: `rotate-aws-backups:dev-0f26d83` (rebuilt locally, uncached).
 
-- Trivy (gating): `0C / 0H` after applying reviewed entries from
-  `.trivyignore`.
-- Docker Scout (advisory): `0C / 1H / 11M / 2L`.
-- Grype (advisory, direct run with DB update): reports additional Python binary
-  CVEs (`2C / 2H`) that are not yet fixable on a stable Alpine Python package.
+- Trivy (gating): `0C / 2H` -- both HIGH findings (see table below) are
+  inside pip's own vendored dependency bundle, not this project's
+  dependencies.
+- Docker Scout (advisory): `0C / 3H / 4M / 1L`.
+- Grype (advisory, `--only-fixed`): reports one Python interpreter finding
+  fixed only in a Python 3.15 prerelease (see table below).
 
 ### Unfixable HIGH/CRITICAL findings (current)
 
 | Scanner | Package | CVE | Severity | Fix status | Notes |
 | --- | --- | --- | --- | --- | --- |
-| Docker Scout | `jq 1.8.1-r0` | CVE-2026-32316 | HIGH | Not fixed | Alpine 3.23 package feed has no patched release yet. |
-| Trivy / Docker Scout | `sqlite 3.51.2-r0` | CVE-2026-11822 | HIGH | Not fixed | Alpine 3.23 package feed has no patched release yet. |
-| Trivy / Docker Scout | `sqlite 3.51.2-r0` | CVE-2026-11824 | HIGH | Not fixed | Alpine 3.23 package feed has no patched release yet. |
-| Grype | `python 3.14.5` | CVE-2026-6100 | CRITICAL | Not fixed | No stable Alpine-provided fix available. |
-| Grype | `python 3.14.5` | CVE-2026-7210 | CRITICAL | 3.15.0b2 | Fix target is Python 3.15 prerelease; not deployed in stable Alpine base. |
-| Grype | `python 3.14.5` | CVE-2026-3298 | HIGH | Not fixed | No stable Alpine-provided fix available. |
-| Grype | `python 3.14.5` | CVE-2026-4786 | HIGH | Not fixed | `webbrowser.open()` path is not used in this container runtime. |
+| Trivy / Docker Scout | `msgpack 1.1.2` | GHSA-6v7p-g79w-8964, CVE-2026-57585 | HIGH | Fixed upstream (1.2.1) | Vendored inside `pip`'s own `_vendor/msgpack` bundle (embedded in CPython's `ensurepip/_bundled` wheel), not this project's dependency. `pypa/pip`'s own `main`-branch `vendor.txt` still pins `msgpack==1.2.1`; the shipped wheel will pick it up on pip's next release. |
+| Trivy / Docker Scout | `setuptools 70.3.0` | CVE-2025-47273 | HIGH | Fixed upstream (78.1.1) | Same as above: this is `pip`'s internal vendored copy, not this project's `setuptools>=84.0.0` floor (already current in `requirements.txt`). `pypa/pip`'s `main`-branch `vendor.txt` deliberately still pins `setuptools==70.3.0` for internal bootstrapping. |
+| Grype | `python 3.14.7` | CVE-2025-15367 | MEDIUM | 3.15.0a6 | Fix target is a Python 3.15 alpha prerelease; not deployed in any stable Alpine base. |
 
 ### Advisory medium/low findings
 
-Scanner reports also include medium/low items with no current upstream APK fix,
-including `CVE-2025-60876` (`busybox`) and `CVE-2016-2781` (`coreutils`).
-These remain tracked but are non-gating.
+Scanner reports also include medium/low items with no current upstream APK fix:
+`CVE-2026-56391`, `CVE-2016-2781`, `CVE-2026-56392` (`coreutils`, already at
+Alpine 3.23's latest packaged version) and `CVE-2025-60876` (`busybox`,
+likewise). These remain tracked but are non-gating.
 
 ---
 
@@ -168,6 +167,16 @@ These remain tracked but are non-gating.
 | CVE-2026-39822 | `supercronic` Go stdlib | Upgraded builder to `golang:1.26.5-alpine` (2026-07-12) |
 | multiple | `cryptography` (PyPI) | Raised floor to `cryptography>=48.0.1` (2026-06-10) |
 | CVE-2026-34182 (CRITICAL), CVE-2026-45447, CVE-2026-7383, CVE-2026-9076, CVE-2026-45445, CVE-2026-42764, CVE-2026-34183, CVE-2026-34180 | `openssl` (APK) | APK upgrade to `openssl 3.5.7-r0` via image rebuild (2026-06-10) |
+| CVE-2026-32280, CVE-2026-32282, CVE-2026-33810, CVE-2026-33811, CVE-2026-33814, CVE-2026-39820, CVE-2026-39836, CVE-2026-42499 | `supercronic` Go stdlib | Upgraded builder to `golang:1.27.0-alpine` (2026-09-02, Dependabot #31) |
+| CVE-2026-39821, CVE-2026-56862, CVE-2026-56859, CVE-2026-56853, CVE-2026-46600, CVE-2026-33818, CVE-2026-56858, CVE-2026-56860 | `stdlib` (Go, via `supercronic`) | Same `golang:1.27.0-alpine` bump; superseded by the v0.2.49 supercronic rebuild below |
+| CVE-2026-39824 | `golang.org/x/sys` (Go, via `supercronic`) | Bumped `SUPERCRONIC_VERSION` from v0.2.45 to v0.2.49, dropping the vulnerable transitive dependency (2026-09-02) |
+| CVE-2026-13346 | `pip` (system Python) | Raised floor to `pip>=26.2.0` (2026-09-02) |
+| CVE-2026-63073, CVE-2026-75803, CVE-2026-63076, CVE-2026-63075, CVE-2026-63072, CVE-2026-54874, CVE-2026-18798, CVE-2026-14457, CVE-2026-14456, CVE-2026-63074 | `openssl` (APK) | Resolved by rebuilding against Alpine 3.23's current package feed (`openssl 3.5.8-r0`); no Dockerfile change needed (2026-09-02) |
+| CVE-2026-32316 | `jq` (APK) | Resolved by rebuilding against Alpine 3.23's current package feed (`jq 1.8.2-r0`); removed stale `.trivyignore` entry (2026-09-02) |
+| CVE-2026-11822, CVE-2026-11824 | `sqlite` (APK) | Resolved by rebuilding against Alpine 3.23's current package feed (`sqlite 3.53.4-r0`); removed stale `.trivyignore` entries (2026-09-02) |
+| CVE-2026-69247 | `cryptography` (PyPI) | Raised floor to `cryptography>=50.0.1` (2026-09-02, Dependabot #32) |
+| CVE-2026-32316 (transitively via `idna`) | `idna` (PyPI) | Raised floor to `idna>=3.19` (2026-09-02, Dependabot #30) |
+| CVE-2026-59890 | `setuptools` (PyPI, project floor) | Raised floor to `setuptools>=84.0.0` (2026-09-02, Dependabot #28) |
 
 ## Reporting vulnerabilities
 
