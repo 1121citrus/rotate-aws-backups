@@ -34,7 +34,7 @@ ARG SUPERCRONIC_VERSION=v0.2.49
 #   CVE-2026-42499 (consumePhrase DoS) HIGH
 # Remove this stage and restore the wget installation once an upstream
 # supercronic release ships with Go >= 1.26.3 (or >= 1.25.10).
-FROM golang:1.27.0-alpine AS supercronic-builder
+FROM golang:1.27.1-alpine AS supercronic-builder
 ARG SUPERCRONIC_VERSION
 RUN CGO_ENABLED=0 go install github.com/aptible/supercronic@${SUPERCRONIC_VERSION}
 
