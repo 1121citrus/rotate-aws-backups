@@ -7,6 +7,50 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.1.21] - 2026-09-03
+
+### Security
+
+- Bump `cryptography` floor in `requirements.txt` from `>=49.0.0` to
+  `>=50.0.1`, resolving `CVE-2026-69247` (Dependabot #32).
+- Bump `idna` floor in `requirements.txt` from `>=3.18` to `>=3.19`
+  (Dependabot #30).
+- Bump `setuptools` floor in `requirements.txt` from `>=82.0.1` to
+  `>=84.0.0`, resolving `CVE-2026-59890` (Dependabot #28).
+- Upgrade supercronic builder image from `golang:1.26.5-alpine` to
+  `golang:1.27.0-alpine`, resolving `CVE-2026-32280`, `CVE-2026-32282`,
+  `CVE-2026-33810`, `CVE-2026-33811`, `CVE-2026-33814`, `CVE-2026-39820`,
+  `CVE-2026-39836`, and `CVE-2026-42499` (Dependabot #31).
+- Bump `SUPERCRONIC_VERSION` from `v0.2.45` to `v0.2.49`, dropping the
+  vulnerable `golang.org/x/sys@0.43.0` transitive dependency
+  (`CVE-2026-39824`).
+- Raise the system-Python `pip` floor from `>=26.0` to `>=26.2.0`,
+  resolving `CVE-2026-13346`.
+- Resolve `openssl` (`CVE-2026-63073`, `CVE-2026-75803`,
+  `CVE-2026-63076`, `CVE-2026-63075`, `CVE-2026-63072`,
+  `CVE-2026-54874`, `CVE-2026-18798`, `CVE-2026-14457`,
+  `CVE-2026-14456`, `CVE-2026-63074`), `jq` (`CVE-2026-32316`), and
+  `sqlite` (`CVE-2026-11822`, `CVE-2026-11824`) by rebuilding against
+  Alpine 3.23's current package feed; removed the now-stale
+  `.trivyignore` entries for these CVEs.
+- Restore reviewed `.trivyignore` exceptions for `GHSA-6v7p-g79w-8964`
+  (`msgpack`) and `CVE-2025-47273` (`setuptools`), both vendored inside
+  pip's own bundled dependency copy and not independently upgradable
+  from this Dockerfile.
+- Refresh `SECURITY.md` scanner reconciliation, unfixable-findings
+  table, and remediation history.
+
+### Changed
+
+- Repin `1121citrus/shared-github-workflows/.github/workflows/pipeline.yml`
+  to a newer reviewed commit SHA (Dependabot #27).
+- Repin `actions/checkout` from `4.3.1` to `7.0.1` across CI workflows
+  (Dependabot #25); correct a stale `v4` version comment that had caused
+  Dependabot to reopen the same bump.
+- Resync `include/logging.md` from the generator's managed-include
+  source to pick up a table-formatting fix, and regenerate `build` to
+  always mount `.trivyignore`.
+
 ## [1.1.20] - 2026-07-14
 
 ### Changed
