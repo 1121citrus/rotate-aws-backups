@@ -3,7 +3,19 @@
 # Last reviewed: 2026-09-02
 # Scope: Trivy gating scan only (HIGH/CRITICAL, ignore-unfixed)
 #
-# No current exceptions. The jq/sqlite CVEs previously listed here
-# (CVE-2026-32316, CVE-2026-11822, CVE-2026-11824) were resolved by
-# patched Alpine 3.23 packages picked up on rebuild. Re-add entries
-# here if a future scan surfaces a genuinely unfixed CVE.
+# The jq/sqlite exceptions previously listed here (CVE-2026-32316,
+# CVE-2026-11822, CVE-2026-11824) were resolved by patched Alpine 3.23
+# packages picked up on rebuild and have been removed.
+#
+# msgpack 1.1.2 and setuptools 70.3.0 findings below are pip's own
+# internally vendored dependency copies (pip/_vendor/*), bundled
+# inside the pip wheel embedded in CPython's ensurepip/_bundled --
+# unrelated to this project's own setuptools>=84.0.0 floor in
+# requirements.txt (already current). Confirmed pip 26.2.1 is the
+# latest PyPI release and pypa/pip's main-branch vendor.txt still
+# pins setuptools==70.3.0 (msgpack is already fixed at HEAD but the
+# 26.2.1 release still vendors 1.1.2); neither is independently
+# upgradable from this Dockerfile. Re-review when pip cuts its next
+# release.
+GHSA-6v7p-g79w-8964
+CVE-2025-47273
