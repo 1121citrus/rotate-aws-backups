@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.1.22] - 2026-10-30
+
 ### Security
 
 - Add `.trivyignore` exceptions for three newly disclosed CVEs in pip's own
@@ -42,6 +44,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   fix only in a 3.15 pre-release), `CVE-2016-2781`/`CVE-2026-56391`
   (`coreutils`), and `CVE-2025-60876` (`busybox`) — none have an Alpine
   secfix entry as of 2026-10-28.
+
+### Fixed
+
+- `build`: Docker Scout now runs only as a non-gating advisory stage
+  (`--advise scout`/`--advise all`), matching the behavior it already had
+  in practice. The previous Stage 4c claimed to gate the build on Scout
+  findings, but the underlying `docker scout cves` call never passed
+  `--exit-code`, so it always exited 0 regardless of severity. Enabling
+  real gating (a fix already applied upstream in the shared build
+  generator) would have failed this build on the same pip-vendored CVEs
+  already reviewed and accepted above, with no local suppression
+  mechanism for Scout equivalent to `.trivyignore`.
 
 ## [1.1.21] - 2026-09-03
 
@@ -255,7 +269,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Initial release
 
-[Unreleased]: https://github.com/1121citrus/rotate-aws-backups/compare/v1.1.19...HEAD
+[Unreleased]: https://github.com/1121citrus/rotate-aws-backups/compare/v1.1.22...HEAD
+[1.1.22]: https://github.com/1121citrus/rotate-aws-backups/compare/v1.1.21...v1.1.22
 [1.1.19]: https://github.com/1121citrus/rotate-aws-backups/compare/v1.1.18...v1.1.19
 [1.1.18]: https://github.com/1121citrus/rotate-aws-backups/compare/v1.1.17...v1.1.18
 [1.1.17]: https://github.com/1121citrus/rotate-aws-backups/compare/v1.1.16...v1.1.17
