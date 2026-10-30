@@ -112,36 +112,44 @@ HIGH/CRITICAL vulnerabilities.
 
 ## Known vulnerabilities
 
-**Trivy gate status (as of 2026-09-02): PASS with no active exceptions.**
-Trivy is the CI gating scanner and fails builds on unfixed HIGH/CRITICAL findings,
-except CVEs explicitly listed in `.trivyignore` after security review. No
-`.trivyignore` entries are currently in force.
+**Trivy gate status (as of 2026-10-29): PASS.** Trivy is the CI gating
+scanner and fails builds on unfixed HIGH/CRITICAL findings, except CVEs
+explicitly listed in `.trivyignore` after security review. Five entries are
+currently in force (see table below).
 
 ### Scanner reconciliation on current image
 
-Image analyzed: `rotate-aws-backups:dev-0f26d83` (rebuilt locally, uncached).
+Image analyzed: `rotate-aws-backups:dev-248d306` (rebuilt locally, uncached,
+supercronic builder bumped to `golang:1.27.3-alpine`).
 
-- Trivy (gating): `0C / 2H` -- both HIGH findings (see table below) are
-  inside pip's own vendored dependency bundle, not this project's
-  dependencies.
-- Docker Scout (advisory): `0C / 3H / 4M / 1L`.
-- Grype (advisory, `--only-fixed`): reports one Python interpreter finding
-  fixed only in a Python 3.15 prerelease (see table below).
+- Trivy (gating, HIGH/CRITICAL, ignore-unfixed): `0C / 0H`.
+- Grype (full severity): `0C / 0H / 13M` — all 13 Medium findings have no
+  available upstream fix (see table below). Prior to the 2026-10-28
+  supercronic builder bump, Grype also reported 1 Critical, 23 High, and 6
+  additional Medium `stdlib` go-module findings against the `go1.27.0`
+  binary; all are now resolved.
+- Docker Scout (advisory): not re-run this session — the local sandbox
+  blocked its outbound call to Docker's cloud scanning backend as a
+  "create public surface" action. CI reproduces this reconciliation on
+  every push.
 
-### Unfixable HIGH/CRITICAL findings (current)
+### Unfixable findings (current)
 
 | Scanner | Package | CVE | Severity | Fix status | Notes |
 | --- | --- | --- | --- | --- | --- |
-| Trivy / Docker Scout | `msgpack 1.1.2` | GHSA-6v7p-g79w-8964, CVE-2026-57585 | HIGH | Fixed upstream (1.2.1) | Vendored inside `pip`'s own `_vendor/msgpack` bundle (embedded in CPython's `ensurepip/_bundled` wheel), not this project's dependency. `pypa/pip`'s own `main`-branch `vendor.txt` still pins `msgpack==1.2.1`; the shipped wheel will pick it up on pip's next release. |
-| Trivy / Docker Scout | `setuptools 70.3.0` | CVE-2025-47273 | HIGH | Fixed upstream (78.1.1) | Same as above: this is `pip`'s internal vendored copy, not this project's `setuptools>=84.0.0` floor (already current in `requirements.txt`). `pypa/pip`'s `main`-branch `vendor.txt` deliberately still pins `setuptools==70.3.0` for internal bootstrapping. |
-| Grype | `python 3.14.7` | CVE-2025-15367 | MEDIUM | 3.15.0a6 | Fix target is a Python 3.15 alpha prerelease; not deployed in any stable Alpine base. |
+| Trivy (suppressed, `.trivyignore`) | `msgpack 1.1.2` | GHSA-6v7p-g79w-8964, CVE-2026-114613 | HIGH | Fixed upstream (1.2.3 on pip `main`) | Vendored inside `pip`'s own `_vendor/msgpack` bundle (embedded in CPython's `ensurepip/_bundled` wheel), not this project's dependency. `pip` 26.2.2 (current PyPI release) still vendors `msgpack==1.1.2`. |
+| Trivy (suppressed, `.trivyignore`) | `urllib3 2.7.0` | CVE-2026-97687, CVE-2026-97689 | HIGH | Not yet fixed upstream (pip `main` still pins 2.7.0) | Same vendoring mechanism: `pip`'s internal `_vendor/urllib3` bundle, not this project's `urllib3>=2.7.0` floor (already current — the standalone install resolves to 2.8.0). Unlike `msgpack`, even pip's `main`-branch `vendor.txt` has not moved past 2.7.0, so no fix exists anywhere upstream yet. |
+| Trivy (suppressed, `.trivyignore`) | `setuptools 70.3.0` | CVE-2025-47273 | HIGH | Fixed upstream (78.1.1) | Same as above: `pip`'s internal vendored copy, not this project's `setuptools>=84.0.0` floor (already current). `pypa/pip`'s `main`-branch `vendor.txt` deliberately still pins `setuptools==70.3.0` for internal bootstrapping. |
+| Grype | `python 3.14.10` | CVE-2025-15367 | MEDIUM | 3.15.0a6 | Fix target is a Python 3.15 alpha prerelease; not deployed in any stable Alpine base. |
+| Grype | `python 3.14.10` | CVE-2026-12345 | MEDIUM | 3.15.0rc3 | Fix target is a Python 3.15 release candidate; not deployed in any stable Alpine base. |
+| Grype | `coreutils`, `coreutils-env`, `coreutils-fmt`, `coreutils-sha512sum 9.8-r1` | CVE-2016-2781, CVE-2026-56391 | MEDIUM | None | No Alpine secfix entry exists for either CVE against `coreutils` on any branch (checked `secdb.alpinelinux.org/v3.23/main.json`, 2026-10-28); already at Alpine 3.23's latest packaged version. |
+| Grype | `busybox`, `busybox-binsh`, `ssl_client 1.37.0-r30` | CVE-2025-60876 | MEDIUM | None | No Alpine secfix entry exists; already at Alpine 3.23's latest packaged version. |
 
 ### Advisory medium/low findings
 
-Scanner reports also include medium/low items with no current upstream APK fix:
-`CVE-2026-56391`, `CVE-2016-2781`, `CVE-2026-56392` (`coreutils`, already at
-Alpine 3.23's latest packaged version) and `CVE-2025-60876` (`busybox`,
-likewise). These remain tracked but are non-gating.
+All current advisory findings are captured in the table above; none have an
+available upstream fix. Re-review alongside the next scheduled CVE pass or
+whenever Alpine, CPython, or pip ship a fix.
 
 ---
 
@@ -177,6 +185,7 @@ likewise). These remain tracked but are non-gating.
 | CVE-2026-69247 | `cryptography` (PyPI) | Raised floor to `cryptography>=50.0.1` (2026-09-02, Dependabot #32) |
 | CVE-2026-32316 (transitively via `idna`) | `idna` (PyPI) | Raised floor to `idna>=3.19` (2026-09-02, Dependabot #30) |
 | CVE-2026-59890 | `setuptools` (PyPI, project floor) | Raised floor to `setuptools>=84.0.0` (2026-09-02, Dependabot #28) |
+| CVE-2026-78663, GO-2026-6612, GO-2026-6604, CVE-2026-78659, GO-2026-6603, CVE-2026-78669, GO-2026-6611, CVE-2026-97031, GO-2026-6607, CVE-2026-94440, GO-2026-6608, CVE-2026-97032, GO-2026-6617, CVE-2026-78667, GO-2026-6609, CVE-2026-56866, GO-2026-6605, CVE-2026-78660, GO-2026-6610, CVE-2026-94439, GO-2026-6613, CVE-2026-94448, CVE-2026-97030, GO-2026-6599, GO-2026-6600, CVE-2026-94447, CVE-2026-94444, CVE-2026-111943, GO-2026-6809 | `stdlib` (Go, via `supercronic`) | Upgraded `supercronic` builder from `golang:1.27.0-alpine` to `golang:1.27.3-alpine`; pinned `ENV GOTOOLCHAIN=local` in the builder stage to prevent a silent toolchain auto-download from defeating the pin (2026-10-28) |
 
 ## Reporting vulnerabilities
 

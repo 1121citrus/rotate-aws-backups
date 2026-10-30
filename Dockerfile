@@ -22,20 +22,23 @@ ARG VERSION=dev
 ARG SUPERCRONIC_VERSION=v0.2.49
 
 # ── Supercronic build stage ────────────────────────────────────────────────
-# Builds supercronic from source with the golang:1.27.0-alpine toolchain,
-# which patches:
-#   CVE-2026-32280 (crypto/x509 DoS) HIGH
-#   CVE-2026-32282 (os.Root symlink traversal) MEDIUM
-#   CVE-2026-33810 (crypto/x509 cert validation bypass) HIGH
-#   CVE-2026-33811 (LookupCNAME memory issue) HIGH
-#   CVE-2026-33814 (HTTP/2 SETTINGS frame processing hang) HIGH
-#   CVE-2026-39820 (ParseAddress DoS) HIGH
-#   CVE-2026-39836 (Dial/LookupPort panic on NUL byte) HIGH
-#   CVE-2026-42499 (consumePhrase DoS) HIGH
+# Builds supercronic from source with the golang:1.27.3-alpine toolchain,
+# which patches (Grype, 2026-10-28):
+#   CVE-2026-78663 (net/http request smuggling) CRITICAL
+#   CVE-2026-78659, CVE-2026-78669, CVE-2026-97031, CVE-2026-94440,
+#   CVE-2026-97032, CVE-2026-78667, CVE-2026-56866, CVE-2026-78660,
+#   CVE-2026-94439, CVE-2026-94447, CVE-2026-94444 HIGH
+#   CVE-2026-94448, CVE-2026-97030 MEDIUM
+#   CVE-2026-111943 (go1.27.3-only fix) UNKNOWN
+# GOTOOLCHAIN=local forces the build to use the Go version shipped in the
+# builder image above rather than silently auto-downloading whatever
+# toolchain supercronic's go.mod requests, which would defeat the pin
+# (see aws-backup-base's 2026-10-28 remediation of the same failure mode).
 # Remove this stage and restore the wget installation once an upstream
 # supercronic release ships with Go >= 1.26.3 (or >= 1.25.10).
-FROM golang:1.27.0-alpine AS supercronic-builder
+FROM golang:1.27.3-alpine AS supercronic-builder
 ARG SUPERCRONIC_VERSION
+ENV GOTOOLCHAIN=local
 RUN CGO_ENABLED=0 go install github.com/aptible/supercronic@${SUPERCRONIC_VERSION}
 
 # The literal tag lets Dependabot open PRs when a newer python:X.Y.Z-alpineX.Y
@@ -69,9 +72,8 @@ LABEL org.opencontainers.image.title="rotate-aws-backups" \
       org.opencontainers.image.revision="${GIT_COMMIT}" \
       org.opencontainers.image.created="${BUILD_DATE}"
 
-# Install supercronic binary compiled with Go 1.26.5 (patches CVE-2026-32280,
-# CVE-2026-32282, CVE-2026-33810, CVE-2026-33811, CVE-2026-33814,
-# CVE-2026-39820, CVE-2026-39836, CVE-2026-42499 via Go stdlib upgrade).
+# Install supercronic binary compiled with Go 1.27.3 (patches the Go stdlib
+# CVEs listed on the builder stage above).
 COPY --from=supercronic-builder --chmod=755 /go/bin/supercronic /usr/local/bin/
 
 COPY requirements.txt /tmp/

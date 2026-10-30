@@ -7,6 +7,42 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Security
+
+- Add `.trivyignore` exceptions for three newly disclosed CVEs in pip's own
+  vendored dependency copies (`pip/_vendor/*`, bundled inside pip 26.2.2's
+  wheel): `CVE-2026-114613` (`msgpack` 1.1.2, DoS via memory leak during map
+  deserialization) and `CVE-2026-97687`/`CVE-2026-97689` (`urllib3` 2.7.0,
+  HTTPS proxy TLS configuration override and unbounded memory allocation in
+  the chunk parser). Confirmed via `docker run --entrypoint sh` against the
+  built image that both vendored copies are isolated from this project's own
+  `urllib3>=2.7.0` floor in `requirements.txt`, which installs cleanly to
+  2.8.0 as a separate top-level package. Confirmed against pypa/pip's
+  `main`-branch `vendor.txt` that `urllib3` is still pinned at `2.7.0`
+  upstream (no fix available yet even on `main`), while `msgpack` has moved
+  to `1.2.3` there but no pip release has shipped it. Neither is
+  independently upgradable from this Dockerfile.
+- Upgrade the `supercronic` builder image from `golang:1.27.0-alpine` to
+  `golang:1.27.3-alpine`, resolving all Grype-reported Go `stdlib`
+  Critical/High/Medium findings in the embedded `supercronic` binary
+  (`CVE-2026-78663`, `CVE-2026-78659`, `CVE-2026-78669`, `CVE-2026-97031`,
+  `CVE-2026-94440`, `CVE-2026-97032`, `CVE-2026-78667`, `CVE-2026-56866`,
+  `CVE-2026-78660`, `CVE-2026-94439`, `CVE-2026-94448`, `CVE-2026-97030`,
+  `CVE-2026-94447`, `CVE-2026-94444`, `CVE-2026-111943`, and their `GO-2026-*`
+  advisory equivalents).
+- Pin `ENV GOTOOLCHAIN=local` in the `supercronic-builder` stage so a future
+  builder-image bump cannot be silently defeated by Go auto-downloading a
+  different toolchain version (the failure mode found and fixed in
+  `aws-backup-base` on the same date).
+- Reconfirm the `.trivyignore` exceptions for `msgpack 1.1.2`
+  (`GHSA-6v7p-g79w-8964`) and `setuptools 70.3.0` (`CVE-2025-47273`): both
+  remain vendored, unchanged, inside pip 26.2.2's bundled dependency copy.
+- Document the remaining Grype Medium findings in `SECURITY.md` as
+  confirmed unfixable upstream: `CVE-2025-15367`/`CVE-2026-12345` (Python,
+  fix only in a 3.15 pre-release), `CVE-2016-2781`/`CVE-2026-56391`
+  (`coreutils`), and `CVE-2025-60876` (`busybox`) — none have an Alpine
+  secfix entry as of 2026-10-28.
+
 ## [1.1.21] - 2026-09-03
 
 ### Security
