@@ -16,7 +16,7 @@ permissions:
 
 jobs:
   ci:
-    uses: 1121citrus/shared-github-workflows/.github/workflows/pipeline.yml@8396acc2585d6540131318935746f1947c44a2ef
+    uses: 1121citrus/shared-github-workflows/.github/workflows/pipeline.yml@v1
     with:
       image: 1121citrus/rotate-aws-backups
       inject-metadata: true
@@ -32,4 +32,5 @@ jobs:
       smoke-commands: |
         docker run --rm --entrypoint bash "${IMAGE}:${VERSION}" -c 'test -x /usr/local/bin/rotate-aws-backups'
         docker run --rm "${IMAGE}:${VERSION}" --help
+      trivyignore: .trivyignore
     secrets: inherit

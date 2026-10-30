@@ -146,10 +146,10 @@ fi
 # ---------------------------------------------------------------------------
 SCAN=${BUILD_SCAN:-true}
 SCAN_GRYPE=${BUILD_SCAN_GRYPE:-true}
-SCAN_SCOUT=${BUILD_SCAN_SCOUT:-true}
 ADVISE_CHURN=false
 ADVISE_DIVE=false
 ADVISE_METRICS=false
+ADVISE_SCOUT=false
 ADVISE_SECURITY=false
 ADVISE_COVERAGE=false
 _ADVISE_EXPLICIT=false   # set true when --advise or --no-advise is passed
@@ -158,7 +158,6 @@ CACHE_RESET_GRYPE=false
 CACHE_SKIP_UPDATE_TRIVY=false
 CACHE_SKIP_UPDATE_GRYPE=false
 CACHE_WARN_DAYS=${BUILD_CACHE_WARN_DAYS:-1}
-TRIVY_IGNOREFILE=${BUILD_TRIVY_IGNOREFILE:-.trivyignore}
 DRY_RUN=false
 BUILD_REPORT_JSON=${BUILD_REPORT_JSON:-}
 LINT=${BUILD_LINT:-true}
@@ -486,7 +485,6 @@ while [[ $# -gt 0 ]]; do
         --no-scan)
             SCAN=false
             SCAN_GRYPE=false
-            SCAN_SCOUT=false
             ;;
         --advise|--advice)
             _ADVISE_EXPLICIT=true
@@ -500,6 +498,7 @@ while [[ $# -gt 0 ]]; do
             ADVISE_CHURN=false
             ADVISE_DIVE=false
             ADVISE_METRICS=false
+            ADVISE_SCOUT=false
             ADVISE_SECURITY=false
             ADVISE_COVERAGE=false
             IFS=',' read -ra adv_list <<< "$advisements"
@@ -511,11 +510,13 @@ while [[ $# -gt 0 ]]; do
                     coverage) ADVISE_COVERAGE=true ;;
                     dive)     ADVISE_DIVE=true ;;
                     metrics)  ADVISE_METRICS=true ;;
+                    scout)    ADVISE_SCOUT=true ;;
                     security) ADVISE_SECURITY=true ;;
                     all)
                         ADVISE_CHURN=true
                         ADVISE_DIVE=true
                         ADVISE_METRICS=true
+                        ADVISE_SCOUT=true
                         ADVISE_SECURITY=true
                         ADVISE_COVERAGE=true
                         ;;
@@ -523,6 +524,7 @@ while [[ $# -gt 0 ]]; do
                         ADVISE_CHURN=false
                         ADVISE_DIVE=false
                         ADVISE_METRICS=false
+                        ADVISE_SCOUT=false
                         ADVISE_SECURITY=false
                         ADVISE_COVERAGE=false
                         ;;
@@ -534,6 +536,7 @@ while [[ $# -gt 0 ]]; do
             ADVISE_CHURN=false
             ADVISE_DIVE=false
             ADVISE_METRICS=false
+            ADVISE_SCOUT=false
             ADVISE_SECURITY=false
             ADVISE_COVERAGE=false
             _ADVISE_EXPLICIT=true
@@ -551,7 +554,7 @@ while [[ $# -gt 0 ]]; do
             sed -n '3,/^# HELP_ENDS_HERE/p' "$0" \
                 | grep '^#' \
                 | sed 's/^# \{0,1\}//' \
-                | awk 'NR>1{print prev} {prev=$0} END{print prev}'
+                | awk 'NR>1{print prev} {prev=$0}'
             exit 0 ;;
         *)
             echo "Unknown option: $1" >&2
@@ -565,6 +568,7 @@ if [[ "${SCAN}" == "false" && "${_ADVISE_EXPLICIT}" == "false" ]]; then
     ADVISE_CHURN=false
     ADVISE_DIVE=false
     ADVISE_METRICS=false
+    ADVISE_SCOUT=false
     ADVISE_SECURITY=false
     ADVISE_COVERAGE=false
 fi
@@ -813,25 +817,18 @@ if [[ "${SCAN}" == "true" ]]; then
     echo "==> Stage 4: Scan ${full_image}:${VERSION}" >&2
 
     _trivy_db_flags=(--skip-db-update --skip-java-db-update)
-    _trivy_ignore_volume=()
-    _trivy_ignore_args=()
-
-    if [[ -n "${TRIVY_IGNOREFILE}" ]] && [[ -f "${script_dir}/${TRIVY_IGNOREFILE}" ]]; then
-        _trivy_ignore_volume=(-v "${script_dir}/${TRIVY_IGNOREFILE}:/.trivyignore:ro")
-        _trivy_ignore_args=(--ignorefile /.trivyignore)
-    fi
 
     run docker run --rm \
         -v "${_scan_tar}:/scan.tar:ro" \
         -v "${TRIVY_CACHE_VOLUME}:/root/.cache/trivy" \
-        "${_trivy_ignore_volume[@]}" \
+        -v "${script_dir}/.trivyignore:/.trivyignore:ro" \
         "${TRIVY_IMAGE}:${TRIVY_TAG}" image \
             --quiet \
             --no-progress \
             --exit-code 1 \
             --ignore-unfixed \
+            --ignorefile /.trivyignore \
             --severity HIGH,CRITICAL \
-            "${_trivy_ignore_args[@]}" \
             --timeout 5m \
             "${_trivy_db_flags[@]}" \
             --input /scan.tar
@@ -885,37 +882,31 @@ if [[ "${SCAN_GRYPE}" == "true" ]]; then
     fi
 fi
 
+# Clean up shared scan archive.
+if [[ -n "${_scan_tar}" ]]; then
+    rm -f "${_scan_tar}"
+    trap - EXIT
+fi
+
 # ---------------------------------------------------------------------------
-# Stage 4c: Scan (Docker Scout — gating)
-# Runs Docker Scout CVE scan.  Exit code blocks the build.
-# Skips cleanly if the scout-cli plugin image is unavailable.
+# Stage 5b: Advise (Docker Scout — non-gating)
 # ---------------------------------------------------------------------------
-if [[ "${SCAN_SCOUT}" == "true" ]]; then
-    echo "==> Stage 4c: Scan (Scout) ${full_image}:${VERSION}" >&2
+if [[ "${ADVISE_SCOUT}" == "true" ]]; then
+    echo "==> Stage 5b: Advise (Scout) ${full_image}:${VERSION}" >&2
     if [[ "${DRY_RUN}" == "true" ]]; then
-        run docker scout cves "${full_image}:${VERSION}"
+        run docker scout cves "${full_image}:${VERSION}" || true
     else
         set +e
         _scout_out=$(docker scout cves "${full_image}:${VERSION}" 2>&1)
         _scout_status=$?
         set -e
         if [[ ${_scout_status} -ne 0 ]] \
-            && echo "${_scout_out}" \
-                | grep -qiE 'not found|cannot pull|failed to resolve'; then
-            echo "    Scout scan skipped: docker/scout-cli image unavailable." >&2
+            && echo "${_scout_out}" | grep -qiE 'not found|cannot pull|failed to resolve'; then
+            echo "    Scout advisory skipped: docker/scout-cli image unavailable." >&2
         else
             echo "${_scout_out}" >&2
-            if [[ ${_scout_status} -ne 0 ]]; then
-                exit "${_scout_status}"
-            fi
         fi
     fi
-fi
-
-# Clean up shared scan archive.
-if [[ -n "${_scan_tar}" ]]; then
-    rm -f "${_scan_tar}"
-    trap - EXIT
 fi
 
 # ---------------------------------------------------------------------------
