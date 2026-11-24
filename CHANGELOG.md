@@ -7,6 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- Raise the minimum versions in `requirements.txt` for `cryptography`
+  (`50.0.2`), `idna` (`3.20`), `setuptools` (`84.2.1`), `urllib3`
+  (`2.8.0`), and `zipp` (`4.1.2`) to match the available Dependabot
+  updates.
+- Upgrade the `supercronic` builder image to `golang:1.27.4-alpine`,
+  including the Go standard-library fixes present in 1.27.3.
+- Upgrade both pipeline artifact downloads to `actions/download-artifact`
+  v8.0.2, pinned to its full commit SHA. This action version requires
+  Actions Runner 2.327.1 or later.
+
 ## [1.1.22] - 2026-10-30
 
 ### Security
