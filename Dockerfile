@@ -36,7 +36,7 @@ ARG SUPERCRONIC_VERSION=v0.2.49
 # (see aws-backup-base's 2026-10-28 remediation of the same failure mode).
 # Remove this stage and restore the wget installation once an upstream
 # supercronic release ships with Go >= 1.26.3 (or >= 1.25.10).
-FROM golang:1.27.3-alpine AS supercronic-builder
+FROM golang:1.27.4-alpine AS supercronic-builder
 ARG SUPERCRONIC_VERSION
 ENV GOTOOLCHAIN=local
 RUN CGO_ENABLED=0 go install github.com/aptible/supercronic@${SUPERCRONIC_VERSION}
