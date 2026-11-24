@@ -4,6 +4,6 @@
 # Applied to both the pip-managed venv and the system Python interpreter.
 cryptography >= 50.0.1
 idna >= 3.19
-setuptools >= 84.0.0
+setuptools >= 84.2.1
 urllib3 >= 2.7.0
 zipp >= 4.1.0
