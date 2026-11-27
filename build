@@ -41,7 +41,7 @@
 #                       --advise after --no-scan to keep them.
 #   --advise [ADVISEMENTS]
 #                       Run advisory scans. Comma-delimited list:
-#                       'churn', 'coverage', 'dive', 'metrics', 'security',
+#                       'churn', 'coverage', 'dive', 'metrics',
 #                       'all', 'none', or any combination.
 #                       'all' selects every available advisement.
 #                       'none' disables all (equivalent to --no-advise).
@@ -93,7 +93,6 @@
 #              a) Dive       — image layer analysis
 #              b) Coverage   — kcov line-coverage report
 #              f) Metrics    — scc code-metrics summary
-#              g) Security   — graudit pattern scan
 #              h) Churn      — code-maat revision analysis
 #   6.  Push      — multi-platform rebuild + push (only with --push)
 #
@@ -150,7 +149,6 @@ ADVISE_CHURN=false
 ADVISE_DIVE=false
 ADVISE_METRICS=false
 ADVISE_SCOUT=false
-ADVISE_SECURITY=false
 ADVISE_COVERAGE=false
 _ADVISE_EXPLICIT=false   # set true when --advise or --no-advise is passed
 CACHE_RESET_TRIVY=false
@@ -499,7 +497,6 @@ while [[ $# -gt 0 ]]; do
             ADVISE_DIVE=false
             ADVISE_METRICS=false
             ADVISE_SCOUT=false
-            ADVISE_SECURITY=false
             ADVISE_COVERAGE=false
             IFS=',' read -ra adv_list <<< "$advisements"
             for adv in "${adv_list[@]}"; do
@@ -511,13 +508,11 @@ while [[ $# -gt 0 ]]; do
                     dive)     ADVISE_DIVE=true ;;
                     metrics)  ADVISE_METRICS=true ;;
                     scout)    ADVISE_SCOUT=true ;;
-                    security) ADVISE_SECURITY=true ;;
                     all)
                         ADVISE_CHURN=true
                         ADVISE_DIVE=true
                         ADVISE_METRICS=true
                         ADVISE_SCOUT=true
-                        ADVISE_SECURITY=true
                         ADVISE_COVERAGE=true
                         ;;
                     none)
@@ -525,7 +520,6 @@ while [[ $# -gt 0 ]]; do
                         ADVISE_DIVE=false
                         ADVISE_METRICS=false
                         ADVISE_SCOUT=false
-                        ADVISE_SECURITY=false
                         ADVISE_COVERAGE=false
                         ;;
                     *)  echo "Unknown advisement: $adv" >&2; exit 1 ;;
@@ -537,7 +531,6 @@ while [[ $# -gt 0 ]]; do
             ADVISE_DIVE=false
             ADVISE_METRICS=false
             ADVISE_SCOUT=false
-            ADVISE_SECURITY=false
             ADVISE_COVERAGE=false
             _ADVISE_EXPLICIT=true
             ;;
@@ -569,7 +562,6 @@ if [[ "${SCAN}" == "false" && "${_ADVISE_EXPLICIT}" == "false" ]]; then
     ADVISE_DIVE=false
     ADVISE_METRICS=false
     ADVISE_SCOUT=false
-    ADVISE_SECURITY=false
     ADVISE_COVERAGE=false
 fi
 
@@ -985,38 +977,6 @@ if [[ "${ADVISE_METRICS}" == "true" ]]; then
         -v "${script_dir}:/data:ro" \
         "${SCC_IMAGE}:${SCC_TAG}" \
         scc --by-file /data >&2 || true
-fi
-
-# ---------------------------------------------------------------------------
-# Stage 5g: Advise (graudit — security pattern scan)
-# Clones graudit at runtime, scans src/ with bash+strings signatures.
-# Results printed to stderr.  Never blocks the build.
-# ---------------------------------------------------------------------------
-if [[ "${ADVISE_SECURITY}" == "true" ]]; then
-    echo "==> Stage 5g: Advise (security) ${full_image}:${VERSION}" >&2
-    _graudit_tmp=$(mktemp -d /tmp/graudit-XXXXXX)
-    # shellcheck disable=SC2064
-    trap "rm -rf '${_graudit_tmp}'" EXIT
-    if git clone --quiet --depth 1 \
-            https://github.com/wireghoul/graudit.git \
-            "${_graudit_tmp}/graudit" >&2; then
-        _shim_dir="${_graudit_tmp}/shim"
-        mkdir -p "${_shim_dir}"
-        _real_grep=$(command -v grep)
-        printf '#!/bin/sh\nexec "%s" --exclude-dir=node_modules --exclude-dir=__pycache__ --exclude-dir=.venv "$@"\n' \
-            "${_real_grep}" > "${_shim_dir}/grep"
-        printf '#!/bin/sh\nexec "%s" -E --exclude-dir=node_modules --exclude-dir=__pycache__ --exclude-dir=.venv "$@"\n' \
-            "${_real_grep}" > "${_shim_dir}/egrep"
-        chmod +x "${_shim_dir}/grep" "${_shim_dir}/egrep"
-        PATH="${_shim_dir}:${PATH}" \
-            "${_graudit_tmp}/graudit/graudit" \
-                -d bash -d strings \
-                "${script_dir}/src" >&2 || true
-    else
-        echo "    Security scan skipped: graudit clone failed" >&2
-    fi
-    rm -rf "${_graudit_tmp}"
-    trap - EXIT
 fi
 
 # ---------------------------------------------------------------------------
