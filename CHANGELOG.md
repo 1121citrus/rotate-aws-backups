@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.1.23] - 2026-11-27
+
 ### Fixed
 
 - `healthcheck`: a new scheduler-mode container no longer reports
@@ -292,7 +294,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Initial release
 
-[Unreleased]: https://github.com/1121citrus/rotate-aws-backups/compare/v1.1.22...HEAD
+[Unreleased]: https://github.com/1121citrus/rotate-aws-backups/compare/v1.1.23...HEAD
+[1.1.23]: https://github.com/1121citrus/rotate-aws-backups/compare/v1.1.22...v1.1.23
 [1.1.22]: https://github.com/1121citrus/rotate-aws-backups/compare/v1.1.21...v1.1.22
 [1.1.19]: https://github.com/1121citrus/rotate-aws-backups/compare/v1.1.18...v1.1.19
 [1.1.18]: https://github.com/1121citrus/rotate-aws-backups/compare/v1.1.17...v1.1.18
