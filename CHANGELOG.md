@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- `healthcheck`: a new scheduler-mode container no longer reports
+  `unhealthy` ("backup has not run recently") until its first scheduled
+  rotation, which with `@daily` could take up to 24 hours after every
+  deploy. Scheduler mode now writes a start file
+  (`HEALTHCHECK_START_FILE`, default `/tmp/.rotate-aws-backups-started`),
+  and the healthcheck measures age from the newer of that file and the
+  success marker. A container whose rotations never succeed still turns
+  `unhealthy` one 25-hour cycle after it starts.
+
 ### Changed
 
 - Raise the minimum versions in `requirements.txt` for `cryptography`

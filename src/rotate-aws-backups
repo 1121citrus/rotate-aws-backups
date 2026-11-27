@@ -419,6 +419,10 @@ function run_scheduler() {
     chmod 0644 "${_crontab}"
     info "crontab: $(cat "${_crontab}")"
 
+    # Record the scheduler start so the healthcheck allows one cycle for the
+    # first rotation instead of reporting unhealthy until it runs.
+    touch "${HEALTHCHECK_START_FILE:-/tmp/.rotate-aws-backups-started}"
+
     info "handing off to supercronic"
     exec supercronic "${_crontab}"
 }

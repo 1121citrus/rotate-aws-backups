@@ -30,15 +30,20 @@ set -o errexit -o errtrace -o nounset -o pipefail
 is_true "${DEBUG:=false}" && set -o xtrace -o verbose
 
 function has_cronjob_run() {
-    # Check for a success marker file written after each successful rotation.
-    # If the cron job is crashing silently, this check will fail and the
-    # container will report unhealthy, alerting the operator.
+    # Pass when a rotation succeeded, or the scheduler started, within the
+    # last 25 hours (one daily cycle plus slack). The start file written by
+    # run_scheduler gives a new container one cycle to complete its first
+    # rotation; if that rotation never succeeds the container still turns
+    # unhealthy, alerting the operator.
     local marker_file="${HEALTHCHECK_SUCCESS_FILE:-/tmp/.rotate-aws-backups-success}"
-    if [[ -f "${marker_file}" ]]; then
-        # Check if the marker is recent (within the last 25 hours, allowing for daily cron).
-        local marker_age=$(($(date +%s) - $(stat -c %Y "${marker_file}" 2>/dev/null || echo 0)))
-        [[ ${marker_age} -lt 90000 ]] && return 0
-    fi
+    local start_file="${HEALTHCHECK_START_FILE:-/tmp/.rotate-aws-backups-started}"
+    local newest=0 file mtime
+    for file in "${marker_file}" "${start_file}"; do
+        [[ -f "${file}" ]] || continue
+        mtime=$(stat -c %Y "${file}" 2>/dev/null || echo 0)
+        [[ ${mtime} -gt ${newest} ]] && newest=${mtime}
+    done
+    [[ $(($(date +%s) - newest)) -lt 90000 ]] && return 0
     error "backup has not run recently"
 }
 

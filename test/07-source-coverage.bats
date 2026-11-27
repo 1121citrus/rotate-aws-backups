@@ -16,7 +16,8 @@
 # healthcheck strategy:
 #   - setup() symlinks /usr/local/include/common-functions from the repo copy
 #   - STUB_DIR contains a pgrep stub (exit 0 = supercronic running) and a
-#     stat stub (outputs current epoch time so any marker appears fresh)
+#     stat stub (outputs STAT_MTIME, default the current epoch time, so a
+#     file appears fresh unless a test sets STAT_MTIME to an old time)
 #   - Tests that need supercronic absent omit STUB_DIR from PATH so the real
 #     pgrep finds no supercronic process in the test container
 #   - Crontab hardcoded to /var/spool/cron/crontabs/rotate-aws-backups
@@ -35,15 +36,14 @@ setup() {
     mkdir -p /var/spool/cron/crontabs
 
     # pgrep stub: simulate supercronic running (exit 0).
-    # stat stub: outputs current epoch time so the marker_age ≈ 0 (fresh).
-    #   The healthcheck uses `stat -f %m` (macOS); the bats-kcov container is
-    #   Alpine Linux where that flag is unsupported.  Returning current time
-    #   makes any marker_age < 90000, so the freshness check succeeds.
+    # stat stub: outputs STAT_MTIME, or the current epoch time when unset,
+    #   so file ages are controlled by the test rather than the filesystem.
     STUB_DIR="${TEST_TMPDIR}/stubs"
     mkdir -p "${STUB_DIR}"
     printf '#!/bin/sh\nexec /bin/true\n' > "${STUB_DIR}/pgrep"
     chmod +x "${STUB_DIR}/pgrep"
-    printf '#!/bin/sh\ndate +%%s\n' > "${STUB_DIR}/stat"
+    printf '#!/bin/sh\necho "${STAT_MTIME:-$(date +%%s)}"\n' \
+        > "${STUB_DIR}/stat"
     chmod +x "${STUB_DIR}/stat"
     export STUB_DIR
 }
@@ -89,6 +89,32 @@ teardown() {
     run env DEBUG=true \
         PATH="${STUB_DIR}:${PATH}" \
         HEALTHCHECK_SUCCESS_FILE="${TEST_TMPDIR}/nonexistent-marker" \
+        HEALTHCHECK_START_FILE="${TEST_TMPDIR}/nonexistent-start" \
+        bash "${REPO_ROOT}/src/healthcheck"
+    [ "$status" -ne 0 ]
+}
+
+@test "healthcheck: exits 0 before the first rotation of a new scheduler" {
+    printf '%s\n' '@daily /usr/local/bin/rotate-aws-backups' \
+        > /var/spool/cron/crontabs/rotate-aws-backups
+    touch "${TEST_TMPDIR}/started"
+    run env DEBUG=true \
+        PATH="${STUB_DIR}:${PATH}" \
+        HEALTHCHECK_SUCCESS_FILE="${TEST_TMPDIR}/nonexistent-marker" \
+        HEALTHCHECK_START_FILE="${TEST_TMPDIR}/started" \
+        bash "${REPO_ROOT}/src/healthcheck"
+    [ "$status" -eq 0 ]
+}
+
+@test "healthcheck: exits non-zero when no rotation succeeded a cycle after start" {
+    printf '%s\n' '@daily /usr/local/bin/rotate-aws-backups' \
+        > /var/spool/cron/crontabs/rotate-aws-backups
+    touch "${TEST_TMPDIR}/started"
+    run env DEBUG=true \
+        PATH="${STUB_DIR}:${PATH}" \
+        STAT_MTIME=$(($(date +%s) - 90001)) \
+        HEALTHCHECK_SUCCESS_FILE="${TEST_TMPDIR}/nonexistent-marker" \
+        HEALTHCHECK_START_FILE="${TEST_TMPDIR}/started" \
         bash "${REPO_ROOT}/src/healthcheck"
     [ "$status" -ne 0 ]
 }

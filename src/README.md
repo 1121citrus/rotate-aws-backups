@@ -9,7 +9,7 @@ Source files copied into the Docker image at build time.
 | `rotate-aws-backups` | `/usr/local/bin/rotate-aws-backups` | Main command. Runs one rotation pass (CLI mode) or enters scheduler mode with `--cron`; modes are mutually exclusive. |
 | `rotate` | `/usr/local/bin/rotate` | Thin wrapper — `exec /usr/local/bin/rotate-aws-backups`. Provides a short synonym for one-off runs. |
 | `startup` | `/usr/local/bin/startup` | Compatibility shim for deployments that set `entrypoint: /usr/local/bin/startup`. Calls `rotate-aws-backups --cron`. |
-| `healthcheck` | `/usr/local/bin/healthcheck` | Docker `HEALTHCHECK` probe. Verifies `crond` is running and the crontab is configured. |
+| `healthcheck` | `/usr/local/bin/healthcheck` | Docker `HEALTHCHECK` probe. Verifies `supercronic` is running, the crontab is configured, and a rotation ran recently. |
 | `include/common-functions` | `/usr/local/include/common-functions` | Shared bash library — logging, boolean helpers, exit codes. |
 
 ## rotate-aws-backups
@@ -101,8 +101,16 @@ New deployments should use `rotate-aws-backups --cron` directly (e.g.
 Called by Docker's `HEALTHCHECK` every 60 seconds. Only meaningful in
 scheduler mode. Returns exit 0 if:
 
-- `crond` is running (checked with `pgrep -x crond`), and
-- the crontab contains `/usr/local/bin/rotate-aws-backups`.
+- `supercronic` is running (checked with `pgrep -x supercronic`),
+- the crontab contains `/usr/local/bin/rotate-aws-backups`, and
+- a rotation succeeded, or the scheduler started, less than 25 hours ago.
+
+A successful rotation touches `HEALTHCHECK_SUCCESS_FILE` (default
+`/tmp/.rotate-aws-backups-success`). Scheduler mode touches
+`HEALTHCHECK_START_FILE` (default `/tmp/.rotate-aws-backups-started`)
+before starting `supercronic`. A new container is therefore healthy until
+its first scheduled rotation, and unhealthy if no rotation succeeds within
+one 25-hour cycle.
 
 ## include/common-functions
 

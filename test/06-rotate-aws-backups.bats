@@ -19,6 +19,7 @@ setup() {
     export TEST_TMPDIR
     # Isolate env-file reads/writes from the real ~/.env.
     export ENV="${TEST_TMPDIR}/.env"
+    export HEALTHCHECK_START_FILE="${TEST_TMPDIR}/started"
     mkdir -p "${TEST_TMPDIR}/bin"
     cp "${repo_root}/test/bin/aws"            "${TEST_TMPDIR}/bin/aws"
     cp "${repo_root}/test/bin/rotate-backups" "${TEST_TMPDIR}/bin/rotate-backups"
@@ -261,6 +262,12 @@ MOCKEOF
     run bash "${RAB}" --cron-expression "@weekly"
     [ "$status" -eq 0 ]
     [[ "$output" == *"@weekly /usr/local/bin/rotate-aws-backups"* ]]
+}
+
+@test "scheduler mode records its start for the healthcheck" {
+    run bash "${RAB}" --cron-expression "@daily"
+    [ "$status" -eq 0 ]
+    [ -f "${HEALTHCHECK_START_FILE}" ]
 }
 
 @test "--hourly N implies scheduler mode" {
